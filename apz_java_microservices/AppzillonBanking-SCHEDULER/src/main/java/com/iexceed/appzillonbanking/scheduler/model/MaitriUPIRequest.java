@@ -1,0 +1,27 @@
+package com.iexceed.appzillonbanking.scheduler.model;
+
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@AllArgsConstructor
+@NoArgsConstructor
+@Data
+@Builder
+public class MaitriUPIRequest {
+
+    @JsonProperty("appId")
+    private String appId;
+
+    @JsonProperty("userId")
+    private String userId;
+
+    @JsonProperty("interfaceName")
+    private String interfaceName;
+
+    @JsonProperty("requestObj")
+    private MaitriUPIRequestFields requestObj;
+}
