@@ -27,7 +27,6 @@ public class TbObGroup implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "group_id", nullable = false)
     private String groupId;
 
@@ -40,6 +39,10 @@ public class TbObGroup implements Serializable {
     @Column(name = "cgt_status", nullable = false)
     @Builder.Default
     private String cgtStatus = "PENDING";
+
+    @Column(name = "grt_status", nullable = false)
+    @Builder.Default
+    private String grtStatus = "PENDING";
 
     @Column(name = "status", nullable = false)
     @Builder.Default
@@ -54,8 +57,8 @@ public class TbObGroup implements Serializable {
     @Column(name = "group_leader_id")
     private String groupLeaderId;
 
-    @Column(name = "t24_group_id")
-    private String t24GroupId;
+    @Column(name = "t24_ref_no")
+    private String t24RefNo;
 
     @Column(name = "total_member_count", nullable = false)
     private String totalMemberCount;
@@ -77,6 +80,9 @@ public class TbObGroup implements Serializable {
 
     @Column(name = "updated_ts")
     private LocalDateTime updatedTs;
+
+    @Column(name = "dms_upload_flag")
+    private String dmsUploadFlag;
 
     @Column(name = "dms_folder_idx")
     private String dmsFolderIdx;

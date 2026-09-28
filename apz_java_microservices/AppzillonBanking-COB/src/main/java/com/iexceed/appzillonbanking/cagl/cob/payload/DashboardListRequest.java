@@ -7,7 +7,16 @@ import lombok.Data;
 @Data
 public class DashboardListRequest {
 
+    @JsonProperty("appId")
+    private String appId;
+
+    @JsonProperty("interfaceName")
+    private String interfaceName;
+
+    @JsonProperty("userId")
+    private String userId;
+
     @Valid
-    @JsonProperty("reqObj")
+    @JsonProperty("requestObj")
     private DashboardListRequestFields reqObj;
 }

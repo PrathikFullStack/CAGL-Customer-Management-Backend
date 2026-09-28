@@ -20,7 +20,7 @@ public final class ApplicationConstants {
     public static final String REQUEST_TYPE_ADD = "add";
 
     // next_workflow_stage
-    public static final String OTP_VERIFIED = "OTP_VERIFIED";
+    public static final String OTPCONSENT = "OTPCONSENT";
 
     // sub_stage codes (stage "1" = member onboarding journey)
     public static final String SUB_STAGE_MEMBER_KYC = "1.2";
@@ -32,11 +32,21 @@ public final class ApplicationConstants {
     public static final String SUB_STAGE_ADDITIONAL_DOCS = "1.8";
     public static final String SUB_STAGE_ADDITIONAL_DOCS_1 = "1.9";
 
+    public static final String RPC_SUB_STAGE_MEMBER_KYC = "2.2";
+    public static final String RPC_SUB_STAGE_ADDRESS = "2.3";
+    public static final String RPC_SUB_STAGE_FAMILY = "2.4";
+    public static final String RPC_SUB_STAGE_INCOME = "2.5";
+    public static final String RPC_SUB_STAGE_KENDRA_SELECTION = "2.6";
+    public static final String RPC_SUB_STAGE_BANK = "2.7";
+    public static final String RPC_SUB_STAGE_ADDITIONAL_DOCS = "2.8";
+    public static final String RPC_SUB_STAGE_ADDITIONAL_DOCS_1 = "2.9";
+
     // record_type / status defaults used at creation time
     public static final String RECORD_TYPE_NEW = "NEW";
-    public static final String STATUS_DRAFT = "DRAFT";
+    public static final String STATUS_INITIATE = "INITIATE";
     public static final String WFSTAGE_DRAFT = "DRAFT";
-    public static final String DEFAULT_STAGE = "1";
+    public static final String STAGE_DRAFT = "DRAFT";
+    public static final String DEFAULT_DRAFT = "DRAFT";
     public static final String INITIAL_SUB_STAGE = "1.1";
 
     // address_type codes used in tb_ob_address

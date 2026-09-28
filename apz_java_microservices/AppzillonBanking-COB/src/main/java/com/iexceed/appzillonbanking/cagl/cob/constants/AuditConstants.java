@@ -7,8 +7,11 @@ public final class AuditConstants {
     }
 
     // User Audit Event Types
-    public static final String DASHBOARD_VIEWED = "DASHBOARD_VIEWED"; // User viewed the dashboard
+    public static final String DASHBOARD_LIST_VIEWED = "DASHBOARD_LIST_VIEWED"; // A dashboard tile list was viewed (application-level)
     public static final String GLOBAL_SEARCH = "GLOBAL_SEARCH"; // User performed a global search
+    public static final String LOCAL_SEARCH = "LOCAL_SEARCH"; // User performed a local (in-page) search
+    public static final String FILTER_SEARCH = "FILTER_SEARCH"; // User performed a filter search
+    public static final String SEARCH_LIST_VIEWED = "SEARCH_LIST_VIEWED"; // A search result list was viewed (application-level)
     public static final String AUDIT_TRAIL_VIEWED = "AUDIT_TRAIL_VIEWED"; // User viewed the audit trail
     public static final String APPLICATION_VIEWED = "APPLICATION_VIEWED"; // User opened/viewed an application
     public static final String DOCUMENT_VIEWED = "DOCUMENT_VIEWED"; // User viewed a specific document

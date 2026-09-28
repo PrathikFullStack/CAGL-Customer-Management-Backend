@@ -7,6 +7,6 @@ import lombok.Data;
 @Data
 public class DashboardRequest {
     @Valid
-    @JsonProperty("reqObj")
+    @JsonProperty("requestObj")
     private DashboardRequestFields reqObj;
 }

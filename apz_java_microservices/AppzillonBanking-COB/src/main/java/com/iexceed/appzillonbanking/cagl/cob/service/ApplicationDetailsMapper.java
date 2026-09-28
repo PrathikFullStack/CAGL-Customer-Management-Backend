@@ -1,13 +1,14 @@
 package com.iexceed.appzillonbanking.cagl.cob.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iexceed.appzillonbanking.cagl.cob.domain.ab.TbObApplicationMaster;
 import com.iexceed.appzillonbanking.cagl.cob.domain.ab.TbObApplnWorkflow;
 import com.iexceed.appzillonbanking.cagl.cob.domain.cus.*;
 import com.iexceed.appzillonbanking.cagl.cob.enums.DocumentCategory;
 import com.iexceed.appzillonbanking.cagl.cob.payload.*;
-import com.iexceed.appzillonbanking.cagl.cob.utils.JsonInliningUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -24,21 +25,21 @@ import java.util.stream.Stream;
  * call sites below are unchanged from the class-based version - Lombok's
  * @Builder generates the same fluent builder API on records.
  */
+@Slf4j
 @Component
 public class ApplicationDetailsMapper {
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss.SSS");
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    public final JsonInliningUtil jsonInliningUtil = new JsonInliningUtil(objectMapper);
 
     public ApplicationDetailsResponse toResponse(TbObApplicationMaster app,
                                                  TbObCustomer customer,
-                                                 TbObCustOthers custOthers,
                                                  List<TbObAddress> addresses,
                                                  List<TbObFamilyMember> familyMembers,
                                                  List<TbObDocument> documents,
                                                  List<TbObOtherDocument> otherDocuments,
-                                                 List<TbObLoan> loans,
-                                                 AdditionalApplicationData applicationData) {
+                                                 TbObLoan loan,
+                                                 AdditionalApplicationData applicationData,
+                                                 TbObBMReInterview bmReInterview) {
 
         List<DocumentEntryDto> allDocEntries = documents.stream()
                 .map(this::toDocumentEntryDto)
@@ -54,6 +55,10 @@ public class ApplicationDetailsMapper {
                         .map(TbObCustomer::getCustomerId)
                         .map(Object::toString)
                         .orElse(null))
+                .locationDetails(Optional.ofNullable(customer)
+                        .map(TbObCustomer::getLocationDetails)
+                        .map(Object::toString)
+                        .orElse(null))
                 .photoDocId(Optional.ofNullable(customer)
                         .map(TbObCustomer::getPhotoDocId)
                         .map(Object::toString)
@@ -66,9 +71,10 @@ public class ApplicationDetailsMapper {
                 .memberKycDetails(toMemberKycDetailsDto(customer, allDocEntries))
                 .personalAddressDetails(toPersonalDetailsDto(customer, addresses, allDocEntries))
                 .familyDetails(toFamilyDetailsDto(customer, familyMembers, allDocEntries))
-                .incomeDet(toIncomeDetailsDto(custOthers, allDocEntries))
+                .incomeDet(toIncomeDetailsDto(customer, allDocEntries))
                 .bankDet(toBankDetailsDto(customer, allDocEntries))
                 .additionalDocuDet(toAdditionalDetailsDto(customer, allDocEntries, otherDocEntries))
+                .loanDetails(toLoanDetails(loan))
                 .verificationDet(Optional.of(customer)
                         .map(TbObCustomer::getVerificationDet)
 //                        .map(Map::copyOf)
@@ -90,9 +96,36 @@ public class ApplicationDetailsMapper {
                 .customerDetails(customerDetails)
                 .breCheck(toBreCheckDto(customer, documents.stream()
                         .filter(document -> document.getSubCat().equalsIgnoreCase("Other-1"))
-                        .findFirst().orElse(new TbObDocument()), loans))
+                        .findFirst().orElse(new TbObDocument()), loan))
                 .applicationData(applicationData)
                 .addresses(toAddressDetailsDtoList(addresses))
+                .bmReInterviewDetails(toBMReInterviewDetailsDto(bmReInterview))
+                .build();
+    }
+
+    private LoanDetailsDto toLoanDetails(TbObLoan loan) {
+        return LoanDetailsDto.builder()
+                .loanSeqId(loan.getLoanSeqId())
+                .applicationId(loan.getApplicationId())
+                .customerId(loan.getCustomerId())
+                .loanId(loan.getLoanId())
+                .amount(loan.getAmount())
+                .approvedAmt(loan.getApprovedAmt())
+                .loanStatus(loan.getLoanStatus())
+                .freq(loan.getFreq())
+                .term(loan.getTerm())
+                .product(loan.getProduct())
+                .productDetails(loan.getProductDetails())
+                .charges(loan.getCharges())
+                .breTriggerPoint(loan.getBreTriggerPoint())
+                .breRequestId(loan.getBreRequestId())
+                .breResponseStatus(loan.getBreResponseStatus())
+                .t24KendraId(loan.getT24KendraId())
+                .t24GroupId(loan.getT24GroupId())
+                .t24CustomerId(loan.getT24CustomerId())
+                .addInfo(loan.getAddInfo())
+                .createdTs(loan.getCreatedTs())
+                .updatedTs(loan.getUpdatedTs())
                 .build();
     }
 
@@ -215,35 +248,42 @@ public class ApplicationDetailsMapper {
     }
 
     private IncomeDetailsDto toIncomeDetailsDto(
-            TbObCustOthers customer,
+            TbObCustomer customer,
             List<DocumentEntryDto> allDocs) {
-        IncomeDet incomeDet = null;
+        IncomeDet.IncomePayloadDto incomePayload = null;
+        List<IncomeDet.QuestionPayloadDto> questionPayload = null;
 
-        try {
-            if (customer != null && customer.getIncomedet() != null) {
-                incomeDet = objectMapper.readValue(
+        if (customer != null && customer.getIncomedet() != null) {
+            try {
+                incomePayload = objectMapper.readValue(
                         customer.getIncomedet(),
-                        IncomeDet.class
+                        IncomeDet.IncomePayloadDto.class
                 );
-                return IncomeDetailsDto.builder()
-                        .incomePayload(Objects.requireNonNull(incomeDet).incomePayload())
-                        .questPayload(incomeDet.questPayload())
-                        .documentList(
-                                wrapDocsForCategory(
-                                        allDocs,
-                                        DocumentCategory.INCOMEDOC
-                                )
-                        )
-                        .build();
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to parse incomedet for customer {}: {}",
+                        customer.getCustomerId(), e.getMessage());
             }
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(
-                    "Failed to parse income details for customer: "
-                            + customer.getCustomerId(),
-                    e
-            );
+
+            if (customer.getQuestionnaire() != null) {
+                try {
+                    questionPayload = objectMapper.readValue(
+                            customer.getQuestionnaire(),
+                            new TypeReference<List<IncomeDet.QuestionPayloadDto>>() {}
+                    );
+                } catch (JsonProcessingException e) {
+                    log.warn("Failed to parse questionnaire for customer {}: {}",
+                            customer.getCustomerId(), e.getMessage());
+                }
+            }
         }
-        return IncomeDetailsDto.builder().build();
+
+        return IncomeDetailsDto.builder()
+                .incomePayload(incomePayload)
+                .questPayload(questionPayload)
+                .documentList(
+                        wrapDocsForCategory(allDocs, DocumentCategory.INCOMEDOC)
+                )
+                .build();
     }
 
     private BankDetailsDto toBankDetailsDto(TbObCustomer customer, List<DocumentEntryDto> allDocs) {
@@ -273,16 +313,13 @@ public class ApplicationDetailsMapper {
     }
 
     /** BRE check reflects the most recent loan/BRE-trigger row for the application. */
-    private BreCheckDto toBreCheckDto(TbObCustomer customer, TbObDocument document, List<TbObLoan> loans) {
-        if (loans == null || loans.isEmpty()) {
+    private BreCheckDto toBreCheckDto(TbObCustomer customer, TbObDocument document, TbObLoan loan) {
+        if (loan == null) {
             return null;
         }
-        TbObLoan latest = loans.stream()
-                .max(Comparator.comparing(TbObLoan::getCreatedTs))
-                .orElse(loans.get(0));
 
         return BreCheckDto.builder()
-                .loanAmount(latest.getAmount().toString())
+                .loanAmount(Optional.ofNullable(loan.getAmount()).map(Object::toString).orElse(null))
                 .overDueAmount(
                         Optional.ofNullable(customer)
                                 .map(TbObCustomer::getPayload)
@@ -311,7 +348,7 @@ public class ApplicationDetailsMapper {
                                 .map(Object::toString)
                                 .orElse(null)
                 )
-                .breStatus(latest.getBreResponseStatus())
+                .breStatus(loan.getBreResponseStatus())
                 .finalFior(
                         Optional.ofNullable(customer)
                                 .map(TbObCustomer::getPayload)
@@ -327,8 +364,66 @@ public class ApplicationDetailsMapper {
                                 .orElse(null)
                 )
                 .reason(document.getReason())
-                .product(latest.getProduct())
-                .questionnaire(customer != null ? Objects.toString(customer.getPayload().get("questionnaire"), null) : null)
+                .product(loan.getProduct())
+                .questionnaire(Optional.ofNullable(customer)
+                        .map(TbObCustomer::getPayload)
+                        .map(payload -> payload.get("questionnaire"))
+                        .map(Object::toString)
+                        .orElse(null))
+                .build();
+    }
+
+    /**
+     * Maps the BM re-interview snapshot for the application, if one exists.
+     * Not every application goes through the BM re-interview stage, so a
+     * missing row is a normal, expected case - returns null rather than an
+     * empty DTO, mirroring {@link #toBreCheckDto} for the same reason.
+     */
+    private BMReInterviewDetailsDto toBMReInterviewDetailsDto(TbObBMReInterview reInterview) {
+        if (reInterview == null) {
+            return null;
+        }
+        return BMReInterviewDetailsDto.builder()
+                .reinterviewId(reInterview.getReinterviewId())
+                .applicationId(reInterview.getApplicationId())
+                .customerId(reInterview.getCustomerId())
+                .bmId(reInterview.getBmId())
+                .bmName(reInterview.getBmName())
+                .docVerified(reInterview.getDocVerified())
+                .docVerifiedTs(reInterview.getDocVerifiedTs())
+                .docVerifyPayload(reInterview.getDocVerifyPayload())
+                .ktQuestionsCount(reInterview.getKtQuestionsCount())
+                .ktScore(reInterview.getKtScore())
+                .ktAnswers(reInterview.getKtAnswers())
+                .ktCompletedTs(reInterview.getKtCompletedTs())
+//                .bmGpsLatitude(reInterview.getBmGpsLatitude())
+//                .bmGpsLongitude(reInterview.getBmGpsLongitude())
+//                .bmGpsAccuracy(reInterview.getBmGpsAccuracy())
+//                .kmGpsLatitude(reInterview.getKmGpsLatitude())
+//                .kmGpsLongitude(reInterview.getKmGpsLongitude())
+                .gpsDistanceBmKm(reInterview.getGpsDistanceBmKm())
+                .gpsMismatchFlag(reInterview.getGpsMismatchFlag())
+                .distFromKendraM(reInterview.getDistFromKendraM())
+                .distFromKendraFlag(reInterview.getDistFromKendraFlag())
+                .locationCapturedTs(reInterview.getLocationCapturedTs())
+                .housePhotoDocId(reInterview.getHousePhotoDocId())
+                .housePhotoClarity(reInterview.getHousePhotoClarity())
+                .housePhotoClarityPass(reInterview.getHousePhotoClarityPass())
+                .housePhotoTs(reInterview.getHousePhotoTs())
+                .loanEditedByBm(reInterview.getLoanEditedByBm())
+                .questionnaireAnswers(reInterview.getQuestionnaireAnswers())
+                .decision(reInterview.getDecision())
+                .rejectionReasons(reInterview.getRejectionReasons())
+                .decisionRemarks(reInterview.getDecisionRemarks())
+                .decisionTs(reInterview.getDecisionTs())
+                .status(reInterview.getStatus())
+                .subStage(reInterview.getSubStage())
+                .subStageStatus(reInterview.getSubStageStatus())
+                .reinterviewStartTs(reInterview.getReinterviewStartTs())
+                .reinterviewEndTs(reInterview.getReinterviewEndTs())
+                .createdTs(reInterview.getCreatedTs())
+                .updatedTs(reInterview.getUpdatedTs())
+                .updatedBy(reInterview.getUpdatedBy())
                 .build();
     }
 

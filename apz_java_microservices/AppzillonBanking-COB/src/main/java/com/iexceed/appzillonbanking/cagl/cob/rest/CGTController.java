@@ -40,7 +40,7 @@ public class CGTController {
             @ApiResponse(responseCode = "404", description = "Resource Not Found")
     })
     @Operation(summary = "CGT Conduct", description = "CGT should be conduct upto mandatory days by km")
-    @PostMapping(value = "/cgt/conduct", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = "/cgt/schedule", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<ResponseWrapper>> conductCGT(
             @RequestBody CGTDetailsRequestWrapper requestWrapper,
             @RequestHeader String appId,
@@ -61,8 +61,7 @@ public class CGTController {
             return new ResponseEntity<>(responseWrapper, HttpStatus.OK);
         });
     }
-
-
+    
 //    @ApiResponses({
 //            @ApiResponse(responseCode = "200", description = "CGT day details fetched successfully"),
 //            @ApiResponse(responseCode = "408", description = "Service Timed Out"),

@@ -11,6 +11,7 @@ import com.iexceed.appzillonbanking.cagl.cob.payload.*;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.*;
 import com.iexceed.appzillonbanking.cagl.cob.repository.ab.*;
 import com.iexceed.appzillonbanking.core.payload.*;
+import com.iexceed.appzillonbanking.core.utils.CommonUtils;
 import com.iexceed.appzillonbanking.core.utils.FallbackUtils;
 import com.iexceed.appzillonbanking.interfaceAdapter.service.InterfaceAdapter;
 import com.iexceed.appzillonbanking.interfaceAdapter.utils.AdapterUtil;
@@ -27,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObCbResponse;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObCbResponseRepository;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObUserAuditTrailRepository;
+import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObCustomerRepository;
+import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObCustomer;
 
 
 import java.sql.Timestamp;
@@ -36,6 +39,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObRecordLockRepo;
+import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 @Service
@@ -60,6 +64,9 @@ public class OnboardingService {
 
     @Autowired
     TbObCustOthersRepository tbObCustOthersRepository;
+
+    @Autowired
+    TbObCustomerRepository tbObCustomerRepository;
 
     @Autowired
     private TbObKendraRepository kendraRepository;
@@ -113,11 +120,15 @@ public class OnboardingService {
     @Value("${record.lock.rpc.inactivity-minutes:60}")
     private long recordLockRpcInactivityMinutes;
 
+    @Value("${cag.login.password:Cag@2026}")
+    private String cagLoginPassword;
+
     @Autowired
     private InterfaceAdapter interfaceAdapter;
 
     @Autowired
     private AdapterUtil adapterUtil;
+
 
     CbRequest cbRequest;
     Header header;
@@ -129,88 +140,12 @@ public class OnboardingService {
     private static final String LOCK_STATUS_EXPIRED = "EXPIRED";
     private static final String LOCK_STATUS_RELEASED = "RELEASED";
     private static final String LOCK_TYPE_PERMANENT = "PERMANENT";
-
-
-
-
-    public Response createKendra(CreateKendraRequest request, Header header) {
-        logger.info("Start : createKendra");
-        Response response = new Response();
-        try {
-            CreateKendraRequestFields requestFields = request.getRequestObj();
-            logger.debug("Create Kendra Request : {}", requestFields);
-            validateDuplicateKendra(requestFields);
-            performBlacklistValidation(requestFields);
-            TbObKendra tbObKendra = prepareKendraEntity(requestFields, header);
-            tbObKendra = kendraRepository.save(tbObKendra);
-            prepareSuccessResponse(response, tbObKendra);
-        } catch (Exception ex) {
-            logger.error("Exception occurred while creating Kendra", ex);
-            throw ex;
-        }
-        logger.info("End : createKendra");
-        return response;
-    }
-
-    private void validateDuplicateKendra(CreateKendraRequestFields request) {
-        Optional<TbObKendra> existingKendra =
-                kendraRepository.findByKendraNameAndBranchId(request.getKendraName(), request.getBranchId());
-        if (existingKendra.isPresent()) {
-            throw new IllegalArgumentException("Kendra already exists.");
-        }
-    }
-    private TbObKendra prepareKendraEntity(CreateKendraRequestFields request, Header header) {
-        return TbObKendra.builder()
-                .kendraName(request.getKendraName())
-                .branchId(request.getBranchId())
-                .kmId(request.getKmId())
-                .addressLine1(request.getAddressLine1())
-                .state(request.getState())
-                .district(request.getDistrict())
-                .village(request.getVillage())
-                .pincode(request.getPincode())
-                .gpsLatitude(request.getGpsLatitude())
-                .gpsLongitude(request.getGpsLongitude())
-                .distanceFromBranch(request.getDistanceFromBranch())
-                .meetingDay(request.getMeetingDay())
-                .meetingTime(request.getMeetingTime())
-                .meetingPlace(request.getMeetingPlace())
-                .meetingFrequency(request.getMeetingFrequency())
-                .firstMeetingDate(request.getFirstMeetingDate())
-                .photoDocId(request.getPhotoDocId())
-                .payload(request.getPayload().toString())
-                .status("PENDING")
-                .blacklistStatus("CLEAR")
-                .createdBy(header.getUserId())
-                .createdTs(LocalDateTime.now())
-                .updatedBy(header.getUserId())
-                .updatedTs(LocalDateTime.now())
-                .build();
-    }
-    private void performBlacklistValidation(CreateKendraRequestFields request) {
-        logger.debug("Performing blacklist validation.");
-        /*
-         * TODO
-         * Call Blacklist Interface
-         *
-         * If blacklisted
-         * throw exception
-         */
-    }
-    private void prepareSuccessResponse(Response response, TbObKendra tbObKendra) {
-        ResponseHeader responseHeader = new ResponseHeader();
-        responseHeader.setHttpStatus(HttpStatus.OK);
-        responseHeader.setResponseMessage("Kendra created successfully.");
-        ResponseBody responseBody = new ResponseBody();
-        CreateKendraResponse createKendraResponse = CreateKendraResponse.builder()
-                .kendraId(tbObKendra.getKendraId())
-                .status(tbObKendra.getStatus())
-                .build();
-        responseBody.setResponseObj(String.valueOf(createKendraResponse));
-        response.setResponseHeader(responseHeader);
-        response.setResponseBody(responseBody);
-    }
-
+//for video List
+    public static final String EXCEPTION_MSG = "Something went wrong, Please try again!!";
+    public static final String INVALIDAPP_MSG = "Invalid application details, Please try again!!";
+    public static final String EXCEPTION_OCCURED = "Exception occurred";
+    public static final String VIDEO_LOGIN_INTERFACEID = "videoLogin";
+    public static final String VIDEO_FETCH_INTERFACEID = "videoFetchUrl";
 
     @CircuitBreaker(name = "fallback", fallbackMethod = "cbCheckFallback")
     public Mono<Object> onboardingCbCheck(CbRequest cbRequest, Header header, String schedulerFlag) {
@@ -313,10 +248,9 @@ public class OnboardingService {
                 .findByApplicationId(cbRequest.getRequestObj().getApplicationId());
         Optional<TbObLoan> loanData = loanRepository
                 .findByApplicationId(cbRequest.getRequestObj().getApplicationId());
-        List<TbObFamilyMember> familyMembers =familyMemberRepository
-                .findByApplicationId(cbRequest.getRequestObj().getApplicationId());
-        Optional<TbObCustOthers> tbObCustOthers=  tbObCustOthersRepository
-                .findByApplicationId(cbRequest.getRequestObj().getApplicationId());
+        String applicationId = cbRequest.getRequestObj().getApplicationId();
+        List<TbObFamilyMember> familyMembers = familyMemberRepository.findByApplicationId(applicationId);
+        Optional<TbObCustomer> tbObCustomer = tbObCustomerRepository.findByApplicationId(applicationId);
 
 
         //APPLICANT ADDRESS
@@ -624,11 +558,12 @@ public class OnboardingService {
         applicant.setLosIndicator("1");
         applicant.setSpouseInsurance("");
 
-        if(tbObCustOthers.isPresent()) {
-            JSONObject incomeDetails= new JSONObject(tbObCustOthers.get().getIncomedet());
-            if(!incomeDetails.isEmpty()){
-                if(incomeDetails.has("income"))
-                {
+        tbObCustomer = tbObCustomerRepository.findByApplicationId(applicationId);
+        if (tbObCustomer.isPresent()) {
+            String custIncomeDet = tbObCustomer.get().getIncomedet();
+            if (custIncomeDet != null && !custIncomeDet.isEmpty()) {
+                JSONObject incomeDetails = new JSONObject(custIncomeDet);
+                if (incomeDetails.has("income")) {
                     applicant.setHhAnnualIncome(incomeDetails.get("income").toString());
                 }
             }
@@ -1206,4 +1141,175 @@ public Response transferApplication(TransferApplicationRequest request) {
         }
     }
 
+
+    public Mono<ResponseWrapper> fetchVideoLinks(VideoLinkRequest request,
+                                                 com.iexceed.appzillonbanking.core.payload.Header header) {
+        try {
+            if (request == null || request.getApiRequest() == null) {
+                logger.error("fetchVideoLinks: request or apiRequest is null");
+                return Mono.just(buildFailureWrapper(INVALIDAPP_MSG));
+            }
+
+            String userId = request.getApiRequest().getRequestObj().getUserId();
+            String lan = request.getApiRequest().getRequestObj().getLan();
+
+            if (userId == null || userId.isBlank()) {
+                logger.error("fetchVideoLinks: userId is null or blank");
+                return Mono.just(buildFailureWrapper(INVALIDAPP_MSG));
+            }
+            if (lan == null || lan.isBlank()) {
+                logger.error("fetchVideoLinks: lan is null or blank");
+                return Mono.just(buildFailureWrapper(INVALIDAPP_MSG));
+            }
+
+            logger.info("fetchVideoLinks: initiated for userId: {}", userId);
+
+            return getVideoLoginToken(userId, copyHeader(header))
+                    .flatMap(token -> {
+                        if (token == null || token.isBlank()) {
+                            logger.error("fetchVideoLinks: token generation failed for userId: {}", userId);
+                            return Mono.just(buildFailureWrapper(EXCEPTION_MSG));
+                        }
+                        logger.info("fetchVideoLinks: token acquired for userId: {}, calling video fetch", userId);
+                        return callVideoFetch(token, userId, lan, copyHeader(header));
+                    })
+                    .onErrorResume(e -> {
+                        logger.error("fetchVideoLinks: exception for userId: {}", userId, e);
+                        return Mono.just(buildFailureWrapper());
+                    });
+
+        } catch (Exception e) {
+            logger.error("fetchVideoLinks: unexpected exception", e);
+            return Mono.just(buildFailureWrapper());
+        }
+    }
+
+    private Mono<String> getVideoLoginToken(String userId,
+                                            com.iexceed.appzillonbanking.core.payload.Header header) {
+        try {
+            Map<String, String> loginBody = new LinkedHashMap<>();
+            loginBody.put("userName", userId);
+            loginBody.put("password", cagLoginPassword);
+
+            header.setInterfaceId(VIDEO_LOGIN_INTERFACEID);
+            logger.debug("getVideoLoginToken: calling CAG login API for userId: {}", userId);
+
+            Mono<Object> apiResponse = interfaceAdapter.callExternalService(
+                    header, loginBody, VIDEO_LOGIN_INTERFACEID, true);
+
+            return adapterUtil.generateRespWrapper(apiResponse, VIDEO_LOGIN_INTERFACEID, header, true)
+                    .map(responseWrapper -> {
+                        try {
+                            Object respObj = Optional.ofNullable(responseWrapper)
+                                    .map(ResponseWrapper::getApiResponse)
+                                    .map(Response::getResponseBody)
+                                    .map(ResponseBody::getResponseObj)
+                                    .orElse(null);
+
+                            if (respObj == null) {
+                                logger.error("getVideoLoginToken: null response for userId: {}", userId);
+                                return "";
+                            }
+
+                            String respStr = (respObj instanceof String)
+                                    ? (String) respObj
+                                    : new Gson().toJson(respObj);
+
+                            JSONObject json = new JSONObject(respStr);
+                            String status = json.optString("status");
+
+                            if ("SUCCESS".equalsIgnoreCase(status)) {
+                                String token = json.optString("token", "");
+                                logger.debug("getVideoLoginToken: token received for userId: {}", userId);
+                                return token;
+                            }
+
+                            logger.error("getVideoLoginToken: non-success status: {}, message: {}, userId: {}",
+                                    status, json.optString("message"), userId);
+                            return "";
+
+                        } catch (Exception e) {
+                            logger.error("getVideoLoginToken: parse error for userId: {}", userId, e);
+                            return "";
+                        }
+                    })
+                    .onErrorResume(e -> {
+                        logger.error("getVideoLoginToken: exception for userId: {}", userId, e);
+                        return Mono.just("");
+                    });
+
+        } catch (Exception e) {
+            logger.error("getVideoLoginToken: exception preparing request for userId: {}", userId, e);
+            return Mono.just("");
+        }
+    }
+
+    private Mono<ResponseWrapper> callVideoFetch(String token, String userId, String lan,
+                                                 com.iexceed.appzillonbanking.core.payload.Header header) {
+        try {
+            Map<String, String> fetchBody = new LinkedHashMap<>();
+            fetchBody.put("Lan", lan);
+            fetchBody.put("GKID", userId);
+            fetchBody.put("authorization", "Bearer " + token);
+
+            header.setInterfaceId(VIDEO_FETCH_INTERFACEID);
+
+            logger.info("callVideoFetch: userId={}, lan={}", userId, lan);
+            logger.info("callVideoFetch: interfaceId={}", VIDEO_FETCH_INTERFACEID);
+            logger.info("callVideoFetch: requestBody keys={}", fetchBody.keySet());
+
+            Mono<Object> apiResponse = interfaceAdapter.callExternalService(
+                    header, fetchBody, VIDEO_FETCH_INTERFACEID, true);
+
+            return adapterUtil.generateRespWrapper(apiResponse, VIDEO_FETCH_INTERFACEID, header, true)
+                    .map(responseWrapper -> {
+                        logger.info("callVideoFetch: response received for userId: {}", userId);
+                        try {
+                            Object respObj = Optional.ofNullable(responseWrapper)
+                                    .map(ResponseWrapper::getApiResponse)
+                                    .map(Response::getResponseBody)
+                                    .map(ResponseBody::getResponseObj)
+                                    .orElse(null);
+                            logger.info("callVideoFetch: raw responseObj={}", respObj);
+                        } catch (Exception e) {
+                            logger.error("callVideoFetch: error logging response", e);
+                        }
+                        return responseWrapper;
+                    })
+                    .onErrorResume(e -> {
+                        logger.error("callVideoFetch: error class={}, message={}",
+                                e.getClass().getName(), e.getMessage(), e);
+                        return Mono.just(buildFailureWrapper());
+                    });
+
+        } catch (Exception e) {
+            logger.error("callVideoFetch: exception for userId: {}", userId, e);
+            return Mono.just(buildFailureWrapper());
+        }
+    }
+    private com.iexceed.appzillonbanking.core.payload.Header copyHeader(
+            com.iexceed.appzillonbanking.core.payload.Header header) {
+        if (header == null) {
+            return new com.iexceed.appzillonbanking.core.payload.Header();
+        }
+        return new Gson().fromJson(new Gson().toJson(header),
+                com.iexceed.appzillonbanking.core.payload.Header.class);
+    }
+
+    private ResponseWrapper buildFailureWrapper() {
+        return buildFailureWrapper(EXCEPTION_MSG);
+    }
+
+    private ResponseWrapper buildFailureWrapper(String message) {
+        Response response = new Response();
+        ResponseHeader respHeader = new ResponseHeader();
+        ResponseBody respBody = new ResponseBody();
+        respBody.setResponseObj(message);
+        CommonUtils.generateHeaderForFailure(respHeader, EXCEPTION_OCCURED);
+        response.setResponseBody(respBody);
+        response.setResponseHeader(respHeader);
+        ResponseWrapper resWrapper = new ResponseWrapper();
+        resWrapper.setApiResponse(response);
+        return resWrapper;
+    }
 }

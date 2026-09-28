@@ -6,7 +6,7 @@ import com.iexceed.appzillonbanking.cagl.cob.payload.FetchApplicationDetailsRequ
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.*;
 import com.iexceed.appzillonbanking.cagl.cob.repository.ab.*;
 import com.iexceed.appzillonbanking.cagl.cob.service.ApplicationDetailsMapper;
-import com.iexceed.appzillonbanking.cagl.cob.service.AuditTrailService;
+import com.iexceed.appzillonbanking.cagl.cob.service.AuditService;
 import com.iexceed.appzillonbanking.cagl.cob.service.RecordLockService;
 import com.iexceed.appzillonbanking.cagl.cob.utils.JsonInliningUtil;
 import com.iexceed.appzillonbanking.core.payload.ResponseWrapper;
@@ -21,19 +21,18 @@ public class KMFetchApplicationHandler extends AbstractFetchApplicationHandler
     public KMFetchApplicationHandler(TbObApplicationMasterRepository applicationMasterRepository,
                                      RecordLockService recordLockService,
                                      TbObCustomerRepository customerRepository,
-                                     TbObCustOthersRepository custOthersRepository,
                                      TbObAddressRepository addressRepository,
                                      TbObFamilyMemberRepository familyMemberRepository,
                                      TbObDocumentRepository documentRepository,
                                      TbObOtherDocumentRepository otherDocumentRepository,
                                      TbObLoanRepository loanRepository,
-                                     TbObCustAuditTrailRepository custAuditTrailRepository,
                                      TbObApplnWorkflowRepository workflowRepository,
-                                     AuditTrailService auditTrailService,
+                                     TbObBMReInterviewRepository bmReInterviewRepository,
+                                     AuditService auditService,
                                      JsonInliningUtil jsonInliningUtil,
                                      ObjectMapper objectMapper,
                                      ApplicationDetailsMapper mapper) {
-        super(applicationMasterRepository, recordLockService, customerRepository, custOthersRepository, addressRepository, familyMemberRepository, documentRepository, otherDocumentRepository, loanRepository, custAuditTrailRepository, workflowRepository, auditTrailService, jsonInliningUtil, objectMapper, mapper);
+        super(applicationMasterRepository, recordLockService, customerRepository, addressRepository, familyMemberRepository, documentRepository, otherDocumentRepository, loanRepository, workflowRepository, bmReInterviewRepository, auditService, jsonInliningUtil, objectMapper, mapper);
     }
 
     // No override of fetchAdditionalData() — pure common flow.

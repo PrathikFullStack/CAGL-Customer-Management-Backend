@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 
+import java.util.List;
 import java.util.Optional;
 
 
@@ -21,9 +22,13 @@ public interface TbObLeadRepository extends JpaRepository<TbObLead, String> {
     Optional<TbObLead> findDuplicate(@Param("mobileNumber") String mobileNumber,
                                      @Param("status") String status);
 
+    long countByMobileNumberAndStatus(@Param("mobileNumber") String mobileNumber, @Param("status") String status);
+
     long countByCreatedBy(String createdBy);
 
     long countByBranchId(String branchId);
+
+    long countByBranchIdIn(List<String> branchIds);
 
     Optional<TbObLead> findByLeadId(String leadId);
 

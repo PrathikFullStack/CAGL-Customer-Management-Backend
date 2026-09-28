@@ -21,14 +21,14 @@ import com.iexceed.appzillonbanking.cagl.cob.payload.ApiResponse;
 import com.iexceed.appzillonbanking.cagl.cob.payload.*;
 import com.iexceed.appzillonbanking.cagl.cob.repository.ab.*;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.*;
-import com.iexceed.appzillonbanking.cagl.cob.constants.AuditConstants;
-import com.iexceed.appzillonbanking.cagl.cob.service.ApplicationDetailsMapper;
-import com.iexceed.appzillonbanking.cagl.cob.service.ApplicationService;
-import com.iexceed.appzillonbanking.cagl.cob.service.AuditService;
-import com.iexceed.appzillonbanking.cagl.cob.service.RecordLockService;
+import com.iexceed.appzillonbanking.cagl.cob.service.*;
 import com.iexceed.appzillonbanking.cagl.cob.service.handler.FetchApplicationHandler;
+import com.iexceed.appzillonbanking.cagl.cob.service.handler.SubStageHandler;
+import com.iexceed.appzillonbanking.cagl.cob.service.handler.SubStageHandlerContext;
 import com.iexceed.appzillonbanking.cagl.cob.service.resolver.FetchApplicationHandlerResolver;
+import com.iexceed.appzillonbanking.cagl.cob.service.resolver.SubStageHandlerResolver;
 import com.iexceed.appzillonbanking.cagl.cob.utils.IdGeneratorUtil;
+import com.iexceed.appzillonbanking.cagl.cob.utils.RequestValidationUtils;
 import com.iexceed.appzillonbanking.core.payload.Response;
 import com.iexceed.appzillonbanking.core.payload.ResponseBody;
 import com.iexceed.appzillonbanking.core.payload.ResponseHeader;
@@ -55,30 +55,37 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     private final TbObApplicationMasterRepository applicationMasterRepository;
     private final TbObCustomerRepository customerRepository;
-    private final TbObAddressRepository addressRepository;
-    private final TbObFamilyMemberRepository familyMemberRepository;
-    private final TbObDocumentRepository documentRepository;
     private final TbObApplnWorkflowRepository workflowRepository;
     private final TbObRecordLockRepository recordLockRepository;
-    private final TbObOtherDocumentRepository otherDocumentRepository;
-    private final TbObLoanRepository loanRepository;
-    private final TbObCustAuditTrailRepository custAuditTrailRepository;
     private final ObjectMapper objectMapper;
-    private final ApplicationDetailsMapper mapper;
-    private final TbObCustOthersRepository custOthersRepository;
-    private final RecordLockService recordLockService;
-    private static final int AUDIT_SNAPSHOT_LIMIT = 20;
     private final FetchApplicationHandlerResolver fetchApplicationHandlerResolver;
+    private final SubStageHandlerResolver subStageHandlerResolver;
     private final AuditService auditService;
-
-    // =========================================================================================
-    // CREATE
-    // =========================================================================================
+    private final MisReportService misReportService;
+    private final TbAsmiUserRepository tbAsmiUserRepository;
+    private final TbObApplicationMasterRepository tbObApplicationMasterRepository;
+    private final TbObLeadRepository leadRepository;
+    private final DuplicateValidationService duplicateValidationService;
 
     @Override
     @Transactional
     public ResponseWrapper createApplication(CreateApplicationRequest request) throws JsonProcessingException {
         ApiResponse lastResponse = null;
+
+        List<String> validationErrors = RequestValidationUtils.validateApplicationRequest(request.getRequestObj());
+        if (!validationErrors.isEmpty()) {
+            log.warn("Application request validation failed: {}", validationErrors);
+            return ResponseWrapper.builder().apiResponse(buildValidationFailureResponse(validationErrors)).build();
+        }
+
+        Response duplicateCheckResponse = duplicateValidationService.validateDatabaseDuplicate(
+                request.getRequestObj().getApplicationdtls(),
+                record -> record.getCustomerDtls().getKycDetails().getMobileNum(),
+                DuplicateValidationService.DuplicateCheckScope.APPLICATION_CREATION);
+
+        if (duplicateCheckResponse != null) {
+            return ResponseWrapper.builder().apiResponse(duplicateCheckResponse).build();
+        }
 
         for (ApplicationCreateDtls dtls : request.getRequestObj().getApplicationdtls()) {
             String applicationId = IdGeneratorUtil.generateApplicationId(request.getBranchId(), request.getUserId());
@@ -88,9 +95,6 @@ public class ApplicationServiceImpl implements ApplicationService {
                     .map(CustomerCreateDtls::getKycDetails)
                     .orElse(null);
 
-            // 2. tb_ob_customer - shares the same customer_id; NOT-NULL columns that aren't known
-            //    yet (dob, marital_status, primary_kyc_type/id) get a PENDING placeholder and are
-            //    overwritten once sub_stage 1.2 (member KYC) is submitted.
             Map<String, Object> kycMap = new HashMap<>();
             if (kyc != null) {
                 kycMap.put("mobileNum", kyc.getMobileNum());
@@ -101,18 +105,24 @@ public class ApplicationServiceImpl implements ApplicationService {
                 kycMap.put("gpsLong", kyc.getGpsLong());
             }
 
+            Map<String, Object> locationDetailsMap = new HashMap<>();
+            if (kyc != null) {
+                locationDetailsMap.put("userRole", request.getUserRole());
+                locationDetailsMap.put("lat", kyc.getGpsLat());
+                locationDetailsMap.put("long", kyc.getGpsLong());
+            }
+
             TbObCustomer customer = TbObCustomer.builder()
                     .applicationId(applicationId)
                     .livePhotoStatus(ApplicationConstants.PLACEHOLDER_NOT_CAPTURED)
                     .kycStatus(ApplicationConstants.PLACEHOLDER_NOT_CAPTURED)
                     .kycDetails(kycMap)
+                    .locationDetails(objectMapper.writeValueAsString(locationDetailsMap))
                     .createdBy(request.getUserId())
                     .createdTs(now)
                     .build();
             customerRepository.save(customer);
 
-            // 1. tb_ob_application_master - customer_id is DB-sequence generated, leave null so
-            //    Hibernate pulls the next value from seq_ob_customer_id via the SequenceGenerator.
             TbObApplicationMaster master = TbObApplicationMaster.builder()
                     .applicationId(applicationId)
                     .customerId(customer.getCustomerId())
@@ -122,12 +132,14 @@ public class ApplicationServiceImpl implements ApplicationService {
                     .kendraName(dtls.getKendraName())
                     .groupId(dtls.getGroupId())
                     .branchId(dtls.getBranchId())
+                    .branchName(dtls.getBranchName())
                     .kmName(dtls.getKmName())
-                    .stage(ApplicationConstants.DEFAULT_STAGE)
+                    .stage(ApplicationConstants.DEFAULT_DRAFT)
                     .subStage(ApplicationConstants.INITIAL_SUB_STAGE)
                     .wfStage(ApplicationConstants.WFSTAGE_DRAFT)
-                    .status(ApplicationConstants.STATUS_DRAFT)
+                    .status(ApplicationConstants.STATUS_INITIATE)
                     .recordType(ApplicationConstants.RECORD_TYPE_NEW)
+                    .dmsDeleteFlag("N")
                     .leadId(dtls.getLeadId())
                     .remarks(dtls.getRemarks())
                     .createdByRole(request.getUserRole())
@@ -138,18 +150,16 @@ public class ApplicationServiceImpl implements ApplicationService {
                     .build();
             master = applicationMasterRepository.save(master);
 
-            // 3. initial workflow snapshot (version 1 / seq 1)
             workflowRepository.save(TbObApplnWorkflow.builder()
                     .appId(request.getAppId())
                     .applicationId(applicationId)
                     .versionNo(1)
                     .workflowSeqNo(1)
-                    .applicationStatus(ApplicationConstants.OTP_VERIFIED)
+                    .applicationStatus(ApplicationConstants.OTPCONSENT)
                     .createdTs(now)
                     .createdBy(request.getUserId())
                     .presentRole(request.getUserRole())
-                    .nextWorkflowStage(ApplicationConstants.WFSTAGE_DRAFT)
-
+                    .nextWorkflowStage(ApplicationConstants.STAGE_DRAFT)
                     .remarks(dtls.getRemarks())
                     .createdUsername(request.getUserName())
                     .build());
@@ -158,16 +168,16 @@ public class ApplicationServiceImpl implements ApplicationService {
             // 4. audit trail entry (application level)
             auditService.saveApplicationAudit(master, customer, request.getUserId(), request.getUserName(),
                     request.getUserRole(), request.getAppId(), request.getAppVersion(),
-                    ApplicationConstants.DEFAULT_STAGE, ApplicationConstants.INITIAL_SUB_STAGE,
-                    ApplicationConstants.WFSTAGE_DRAFT, false, dtls, null);
+                    ApplicationConstants.DEFAULT_DRAFT, ApplicationConstants.INITIAL_SUB_STAGE,
+                    ApplicationConstants.WFSTAGE_DRAFT, dtls, null, null);
 
             // audit trail entry (user level - who created the application)
-            auditService.saveUserAudit(AuditConstants.APPLICATION_CREATED, applicationId,
+            auditService.saveUserAudit(request.getInterfaceName(), applicationId,
                     String.valueOf(customer.getCustomerId()), request.getUserId(), request.getUserName(),
                     request.getUserRole(), master.getBranchId(), master.getKendraId(), master.getGroupId(), dtls);
 
             lastResponse = ApiResponse.success("Application created successfully", applicationId,
-                    master.getCustomerId(), ApplicationConstants.DEFAULT_STAGE, ApplicationConstants.INITIAL_SUB_STAGE, 1);
+                    master.getCustomerId(), ApplicationConstants.DEFAULT_DRAFT, ApplicationConstants.INITIAL_SUB_STAGE, 1);
         }
 
         ResponseWrapper responseWrapper = new ResponseWrapper();
@@ -179,9 +189,69 @@ public class ApplicationServiceImpl implements ApplicationService {
         return responseWrapper;
     }
 
-    // =========================================================================================
-    // UPDATE
-    // =========================================================================================
+    public static Response buildValidationFailureResponse(List<String> validationErrors) {
+        ResponseHeader responseHeader = new ResponseHeader();
+        CommonUtils.generateHeaderForFailure(responseHeader, String.join(" | ", validationErrors));
+
+        Response response = new Response();
+        response.setResponseHeader(responseHeader);
+        response.setResponseBody(new ResponseBody());
+        return response;
+    }
+
+    private Response validateDatabaseDuplicate(CreateApplicationRequestFields requestObj) throws JsonProcessingException {
+        log.info("Inside validateDatabaseDuplicate");
+        Response response = new Response();
+        ResponseHeader responseHeader = new ResponseHeader();
+        ResponseBody responseBody = new ResponseBody();
+
+        for (ApplicationCreateDtls record : requestObj.getApplicationdtls()) {
+
+            // 1. Duplicate check against tb_ob_lead (existing OPEN leads)
+            Optional<TbObLead> duplicateLead =
+                    leadRepository.findDuplicate(record.getCustomerDtls().getKycDetails().getMobileNum(), "OPEN");
+            if (duplicateLead.isPresent()) {
+                responseBody.setResponseObj(
+                        objectMapper.writeValueAsString(buildDuplicateResponse(duplicateLead.get())));
+                CommonUtils.generateHeaderForFailure(responseHeader, "Lead already exists.");
+                response.setResponseHeader(responseHeader);
+                response.setResponseBody(responseBody);
+                return response;
+            }
+
+            // 2. Duplicate check against tb_ob_application_master (already onboarded customers)
+            Optional<TbObApplicationMaster> customer =
+                    tbObApplicationMasterRepository.findByMobileNumber(record.getCustomerDtls().getKycDetails().getMobileNum());
+            if (customer.isPresent()) {
+                CommonUtils.generateHeaderForFailure(responseHeader, "Customer already exists.");
+                response.setResponseHeader(responseHeader);
+                response.setResponseBody(responseBody);
+                return response;
+            }
+
+            // 3. Duplicate check against tb_asmi_user (already registered app users)
+            Optional<TbAsmiUser> asmiUser =
+                    tbAsmiUserRepository.findByMobileNumber(record.getCustomerDtls().getKycDetails().getMobileNum());
+            if (asmiUser.isPresent()) {
+                CommonUtils.generateHeaderForFailure(responseHeader, "User already exists.");
+                response.setResponseHeader(responseHeader);
+                response.setResponseBody(responseBody);
+                return response;
+            }
+        }
+        return null;
+    }
+
+    private List<LeadCreationResult> buildDuplicateResponse(TbObLead lead) {
+        List<LeadCreationResult> responseList = new ArrayList<>();
+        responseList.add(LeadCreationResult.builder()
+                .leadId(lead.getLeadId())
+                .memberName(lead.getCustomerName())
+                .mobileNumber(lead.getMobileNumber())
+                .message("Lead already exists. Click 'Recapture Details' to continue.")
+                .build());
+        return responseList;
+    }
 
     @Override
     @Transactional
@@ -194,7 +264,7 @@ public class ApplicationServiceImpl implements ApplicationService {
             TbObApplicationMaster master = applicationMasterRepository.findByApplicationId(applicationId)
                     .orElseThrow(() -> new ApplicationNotFoundException(applicationId));
 
-            assertNotLockedByAnotherUser(applicationId, request.getUserId());
+//            assertNotLockedByAnotherUser(applicationId, request.getUserId());
 
             TbObCustomer customer = customerRepository.findByApplicationId(applicationId)
                     .orElseThrow(() -> new ApplicationNotFoundException(applicationId));
@@ -202,38 +272,38 @@ public class ApplicationServiceImpl implements ApplicationService {
             LocalDateTime now = LocalDateTime.now();
             CustomerUpdateDtls cd = dtls.getCustomerDtls();
 
-            // route the payload to the right table(s) based on sub_stage
             String subStage = dtls.getSubStage();
-            System.out.println("sub_stage: " + subStage);
-            if (cd != null) {
-                switch (subStage) {
-                    case ApplicationConstants.SUB_STAGE_MEMBER_KYC -> handleMemberKyc(cd, applicationId, customer, request.getUserId(), now);
-                    case ApplicationConstants.SUB_STAGE_ADDRESS -> handleAddress(cd, applicationId, customer, request.getUserId(), now);
-                    case ApplicationConstants.SUB_STAGE_FAMILY -> handleFamily(cd, applicationId, customer, request.getUserId(), now);
-                    case ApplicationConstants.SUB_STAGE_INCOME -> handleIncome(cd, applicationId, customer, request.getUserId(), now);
-                    case ApplicationConstants.SUB_STAGE_KENDRA_SELECTION -> handleKendraSelection(cd, master, customer);
-                    case ApplicationConstants.SUB_STAGE_BANK -> handleBank(cd, applicationId, customer, request.getUserId(), now);
-                    case ApplicationConstants.SUB_STAGE_ADDITIONAL_DOCS, ApplicationConstants.SUB_STAGE_ADDITIONAL_DOCS_1 -> handleAdditionalDocs(cd, applicationId, customer, request.getUserId(), now);
-                    default -> throw new InvalidSubStageException(subStage);
-                }
-                if(cd.getKycDetails() != null) {
+            System.out.println("sub stage - 1: " + subStage);
+            if (cd != null && cd.getVerficationDet() != null) {
+                SubStageHandler handler = subStageHandlerResolver.resolve(subStage);
+                SubStageHandlerContext context = SubStageHandlerContext.builder()
+                        .customerUpdateDtls(cd)
+                        .applicationId(applicationId)
+                        .customer(customer)
+                        .userId(request.getUserId())
+                        .now(now)
+                        .master(master)
+                        .build();
+                handler.handle(context);
+
+                if (cd.getKycDetails() != null) {
                     customer.setKycDetails(cd.getKycDetails());
                 }
                 mergeVerification(cd, customer);
             }
 
-            // common application_master fields present on every update call
-            if(dtls.getCustomerName() != null) {
+            if (dtls.getCustomerName() != null) {
                 master.setCustomerName(dtls.getCustomerName());
                 customer.setCustomerName(dtls.getCustomerName());
             }
             master.setStage(dtls.getStage() != null ? dtls.getStage() : master.getStage());
-            master.advanceSubStage(subStage);
+            master.setSubStage(subStage);
             master.setWfStage(dtls.getWfstage());
             master.setKmName(dtls.getKmName() != null ? dtls.getKmName() : master.getKmName());
             master.setChannelType(dtls.getChannelType());
             master.setDmsFolderIdx(dtls.getDmsFolderIdx() != null ? dtls.getDmsFolderIdx() : master.getDmsFolderIdx());
             master.setRemarks(dtls.getRemarks());
+            master.setAddInfo1(objectMapper.writeValueAsString(dtls.getAddInfo()));
             master.setUpdatedBy(request.getUserId());
             master.setUpdatedByRole(request.getUserRole());
             master.setUpdatedTs(now);
@@ -261,10 +331,15 @@ public class ApplicationServiceImpl implements ApplicationService {
 
             auditService.saveApplicationAudit(master, customer, request.getUserId(), request.getUserName(),
                     request.getUserRole(), request.getAppId(), request.getAppVersion(), dtls.getStage(), subStage,
-                    dtls.getWfstage(), true, dtls, dtls.getAddInfo());
+                    dtls.getWfstage(), dtls, dtls.getModifiedDetails(), dtls.getAddInfo());
+
+            // offline/MIS report capture - overall (not per-field) modification counter
+            misReportService.recordModifiedDetails(master, customer, request.getUserId(), request.getUserRole(),
+                    request.getAppVersion(), dtls.getStage(), subStage, dtls.getWfstage(),
+                    dtls.getChannelType(), dtls.getRemarks(), dtls.getModifiedDetails());
 
             // audit trail entry (user level - who updated the application, and what sub-stage)
-            auditService.saveUserAudit(AuditConstants.APPLICATION_UPDATED, applicationId,
+            auditService.saveUserAudit(request.getInterfaceName(), applicationId,
                     String.valueOf(customer.getCustomerId()), request.getUserId(), request.getUserName(),
                     request.getUserRole(), master.getBranchId(), master.getKendraId(), master.getGroupId(), dtls);
 
@@ -281,330 +356,8 @@ public class ApplicationServiceImpl implements ApplicationService {
         return responseWrapper;
     }
 
-    // =========================================================================================
-    // Sub-stage 1.2 - member KYC
-    // =========================================================================================
-
-    private void handleMemberKyc(CustomerUpdateDtls cd, String applicationId, TbObCustomer customer,
-                                 String uploadedBy, LocalDateTime now) throws JsonProcessingException {
-        Map<String, Object> kycMap = customer.getKycDetails() != null ? customer.getKycDetails() : new HashMap<>();
-        if (cd.getKycDetails() != null) {
-            kycMap.putAll(cd.getKycDetails());
-        }
-        customer.setPhotoDocId(cd.getPhotoDocId());
-        customer.setKycDetails(kycMap);
-        customer.setLivePhotoStatus(cd.getMemberPhoto().getStatus());
-
-        Object primaryType = kycMap.get("primaryType");
-        Object primaryId = kycMap.get("primaryId");
-        if (primaryType != null) customer.setPrimaryKycType(primaryType.toString());
-        if (primaryId != null) customer.setPrimaryKycId(primaryId.toString());
-
-        // member live photo
-        Optional.ofNullable(cd.getMemberPhoto())
-                .map(MemberPhotoDet::getDocumentList)
-                .ifPresent(documentList ->
-                        documentList.stream()
-                                .map(DocumentListItem::getDocumentDetails)
-                                .filter(Objects::nonNull)
-                                .forEach(documentDetails ->
-                                {
-                                    try {
-                                        saveDocument(
-                                                documentDetails,
-                                                applicationId,
-                                                customer.getCustomerId(),
-                                                uploadedBy,
-                                                now
-                                        );
-                                    } catch (JsonProcessingException e) {
-                                        throw new RuntimeException(e);
-                                    }
-                                }));
-
-        // member KYC documents (Voter ID / Aadhaar / PAN ...)
-        if (cd.getMemberKycDetails() != null && !CollectionUtils.isEmpty(cd.getMemberKycDetails().getDocumentList())) {
-            for (DocumentListItem item : cd.getMemberKycDetails().getDocumentList()) {
-                if (item.getDocumentDetails() != null) {
-                    saveDocument(item.getDocumentDetails(), applicationId, customer.getCustomerId(), uploadedBy, now);
-                }
-            }
-        }
-    }
-
-    // =========================================================================================
-    // Sub-stage 1.3 - address
-    // =========================================================================================
-
-    private void handleAddress(CustomerUpdateDtls cd, String applicationId, TbObCustomer customer,
-                               String uploadedBy, LocalDateTime now) throws JsonProcessingException {
-        if (cd.getCustomerName() != null) {
-            customer.setCustomerName(cd.getCustomerName());
-        }
-        Map<String, Object> kycMap = customer.getKycDetails() != null ? customer.getKycDetails() : new HashMap<>();
-        if (cd.getKycDetails() != null) {
-            kycMap.putAll(cd.getKycDetails());
-        }
-        customer.setKycDetails(kycMap);
-        Object dob = kycMap.get("dob");
-        if (dob != null) {
-            customer.setDob(dob.toString());
-        }
-
-        PersonalAddressDet pad = cd.getPersonalAddressDet();
-        if (pad == null || CollectionUtils.isEmpty(pad.getDocumentList())) {
-            return;
-        }
-
-        for (DocumentListItem document : pad.getDocumentList()) {
-            DocumentDetail doc = document.getDocumentDetails();
-            String addressType = "ADDC".equalsIgnoreCase(doc.getSubCat())
-                    ? ApplicationConstants.ADDRESS_TYPE_COMMUNICATION
-                    : ApplicationConstants.ADDRESS_TYPE_PERMANENT;
-
-            Map<String, Object> addrPayload = new HashMap<>();
-            addrPayload.put("nameSelected", cd.getPersonalAddressDet().getNameSelected());
-            addrPayload.put("dobSelected", cd.getPersonalAddressDet().getDobSelected());
-            addrPayload.put("PA", cd.getPersonalAddressDet().getPa());
-            addrPayload.put("CA", cd.getPersonalAddressDet().getCa());
-
-            TbObAddress address = addressRepository.findByApplicationIdAndAddressType(applicationId, addressType)
-                    .orElse(TbObAddress.builder()
-                            .customerId(customer.getCustomerId())
-                            .applicationId(applicationId)
-                            .addressType(addressType)
-                            .commSameAsPerm("N")
-                            .createdTs(now)
-                            .build());
-            address.setAddrPayload(addrPayload);
-            address.setAddressProofDocId(doc.getPhoto());
-            address.setUpdatedTs(now);
-            address.setUpdatedBy(uploadedBy);
-            addressRepository.save(address);
-
-            saveDocument(doc, applicationId, customer.getCustomerId(), uploadedBy, now,
-                    ApplicationConstants.DOCUMENT_CATEGORY_ADDRESS);
-        }
-    }
-
-    // =========================================================================================
-    // Sub-stage 1.4 - family members
-    // =========================================================================================
-
-    private void handleFamily(CustomerUpdateDtls cd, String applicationId, TbObCustomer customer,
-                              String uploadedBy, LocalDateTime now) throws JsonProcessingException {
-        log.info("Enter handle family: " + cd + " : " + applicationId + " : " + customer + " : " + uploadedBy + " : " + now);
-        Map<String, Object> kycMap = customer.getKycDetails() != null ? customer.getKycDetails() : new HashMap<>();
-        if (cd.getKycDetails() != null) {
-            kycMap.putAll(cd.getKycDetails());
-        }
-        customer.setKycDetails(kycMap);
-
-        FamilyDet fd = cd.getFamilyDetails();
-        if (fd == null || CollectionUtils.isEmpty(fd.getMemberList())) {
-            return;
-        }
-
-        // re-submission of this sub-stage replaces the previously captured family list
-//        familyMemberRepository.deleteByApplicationId(applicationId);
-
-        for (FamilyMemberItem item : fd.getMemberList()) {
-            String name = null;
-            String gender = null;
-            LocalDate dob = null;
-            String kycType = null;
-            String kycDocId = null;
-            String kycDocFront = null;
-            String kycDocBack = null;
-            String photoDocId = null;
-
-            if (!CollectionUtils.isEmpty(item.getDocumentList())) {
-                for (DocumentListItem docListItem : item.getDocumentList()) {
-                    DocumentDetail doc = docListItem.getDocumentDetails();
-                    if (doc == null) continue;
-
-                    Map<String, Object> inputData = doc.getInputData();
-                    if (inputData != null) {
-                        if (name == null && inputData.get("name") != null) name = inputData.get("name").toString();
-                        if (gender == null && inputData.get("gender") != null) gender = inputData.get("gender").toString();
-                        if (dob == null && inputData.get("dob") != null) dob = parseDob(inputData.get("dob").toString());
-                    }
-                    if ("VOTER-ID".equalsIgnoreCase(doc.getLegalDocName()) && doc.getSubCat().contains("FD1")
-                            && item.getMemberType().equalsIgnoreCase("P")) {
-                        kycType = doc.getLegalDocName();
-                        kycDocId = doc.getLegalDocId();
-                        kycDocFront = doc.getDocuNoF();
-                        kycDocBack = doc.getDocuNoB();
-                    } else if(item.getMemberType().equalsIgnoreCase("S")) {
-                        kycType = doc.getLegalDocName();
-                        kycDocId = doc.getLegalDocId();
-                        kycDocFront = doc.getDocuNoF();
-                        kycDocBack = doc.getDocuNoB();
-                    }
-                    if (doc.getPhoto() != null && !doc.getPhoto().isBlank() && doc.getDocuNoF() == null) {
-                        photoDocId = doc.getPhoto();
-                    }
-                }
-            }
-            customer.setMaritalStatus(cd.getFamilyDetails().getMaritalStatus());
-            TbObFamilyMember familyMember = familyMemberRepository
-                    .findByApplicationIdAndRelationAndMemberType(
-                            applicationId,
-                            item.getRelationType(),
-                            item.getMemberType())
-                    .orElseGet(TbObFamilyMember::new);
-
-            // populate fields
-            familyMember.setCustomerId(customer.getCustomerId());
-            familyMember.setApplicationId(applicationId);
-            familyMember.setMemberType(item.getMemberType());
-            familyMember.setRelation(item.getRelationType());
-            familyMember.setName(name != null ? name : ApplicationConstants.PLACEHOLDER_NOT_CAPTURED);
-            familyMember.setDob(dob);
-            familyMember.setGender(gender);
-            familyMember.setMobileNum(item.getMobileNum());
-            familyMember.setKycType(kycType);
-            familyMember.setKycDocId(kycDocId);
-            familyMember.setKycDocFront(kycDocFront);
-            familyMember.setKycDocBack(kycDocBack);
-            familyMember.setPhotoDocId(photoDocId);
-            familyMember.setIsNominee(Boolean.TRUE.equals(item.getIsNominee()));
-            familyMember.setIsEarningMember(Boolean.TRUE.equals(item.getIsEarning()));
-
-            if (familyMember.getFamilyMemId() == null) {
-                familyMember.setCreatedTs(now);
-            }
-
-            familyMemberRepository.save(familyMember);
-            System.out.println("Family Member Id: " + familyMember.getFamilyMemId());
-            if (!CollectionUtils.isEmpty(item.getDocumentList())) {
-                for (DocumentListItem docListItem : item.getDocumentList()) {
-                    if (docListItem.getDocumentDetails() != null) {
-                        // For mapping the family document details
-                        docListItem.getDocumentDetails().setMappingId(familyMember.getFamilyMemId());
-                        saveDocument(docListItem.getDocumentDetails(), applicationId, customer.getCustomerId(), uploadedBy, now);
-                    }
-                }
-            }
-        }
-    }
-
-    // =========================================================================================
-    // Sub-stage 1.5 - income
-    // =========================================================================================
-
-    private void handleIncome(CustomerUpdateDtls cd, String applicationId, TbObCustomer customer,
-                              String uploadedBy, LocalDateTime now) throws JsonProcessingException {
-        Map<String, Object> payload = customer.getPayload() != null ? customer.getPayload() : new HashMap<>();
-        if (cd.getPayload() != null) {
-            payload.putAll(cd.getPayload());
-        }
-
-        TbObCustOthers custOthers = custOthersRepository.findByApplicationId(applicationId)
-                .orElseGet(() -> TbObCustOthers.builder()
-                        .applicationId(applicationId)
-                        .customerId(customer.getCustomerId())
-                        .createdTs(now)
-                        .build());
-        custOthers.setCustomerId(customer.getCustomerId());
-        String incomeDet = objectMapper.convertValue(cd.getIncomeDet(), new TypeReference<String>() {});
-        custOthers.setIncomedet(incomeDet);
-        IncomeDet inc = cd.getIncomeDet();
-        if (inc != null) {
-            custOthers.setQuestionnaire(objectMapper.writeValueAsString(inc.questPayload()));
-//            if (inc.incomePayload() != null) payload.put("incomePayload", inc.incomePayload());
-//            if (inc.questPayload() != null) payload.put("questPayload", inc.questPayload());
-        }
-        customer.setPayload(payload);
-        custOthersRepository.save(custOthers);
-        if (inc != null && !CollectionUtils.isEmpty(inc.documentList())) {
-            for (DocumentListItem document : inc.documentList()) {
-                saveDocument(document.getDocumentDetails(), applicationId, customer.getCustomerId(), uploadedBy, now);
-            }
-        }
-    }
-
-    // =========================================================================================
-    // Sub-stage 1.6 - kendra selection
-    // =========================================================================================
-
-    private void handleKendraSelection(CustomerUpdateDtls cd, TbObApplicationMaster master, TbObCustomer customer) {
-        KendraSelectionDetails ks = cd.getKendraSelectionDetails();
-        if (ks == null) {
-            return;
-        }
-        master.setKendraId(ks.getKendraId());
-        master.setKendraName(ks.getKendraName());
-        master.setGroupId(ks.getGroupId());
-        customer.setDistanceFromKendra(ks.getDistanceFromKendra());
-
-        if (cd.getPayload() != null) {
-            Map<String, Object> payload = customer.getPayload() != null ? customer.getPayload() : new HashMap<>();
-            payload.putAll(cd.getPayload());
-            customer.setPayload(payload);
-        }
-    }
-
-    // =========================================================================================
-    // Sub-stage 1.7 - bank details
-    // =========================================================================================
-
-    private void handleBank(CustomerUpdateDtls cd, String applicationId, TbObCustomer customer,
-                            String uploadedBy, LocalDateTime now) throws JsonProcessingException {
-        BankDet bd = cd.getBankDet();
-        if (bd == null) {
-            return;
-        }
-
-        Map<String, Object> bankMap = new HashMap<>();
-        bankMap.put("bankAccNo", bd.getBankAccNo());
-        bankMap.put("bankAccName", bd.getBankAccName());
-        bankMap.put("bankBranchName", bd.getBankBranchName());
-        bankMap.put("bankName", bd.getBankName());
-        bankMap.put("bankIfscCode", bd.getBankIfscCode());
-        bankMap.put("status", bd.getStatus());
-        bankMap.put("pennyRes", bd.getPennyRes());
-        customer.setBankDetails(bankMap);
-
-        if (cd.getPayload() != null) {
-            Map<String, Object> payload = customer.getPayload() != null ? customer.getPayload() : new HashMap<>();
-            payload.putAll(cd.getPayload());
-            customer.setPayload(payload);
-        }
-
-        if (!CollectionUtils.isEmpty(bd.getDocumentList())) {
-            for (DocumentListItem document : bd.getDocumentList()) {
-                saveDocument(document.getDocumentDetails(), applicationId, customer.getCustomerId(), uploadedBy, now);
-            }
-        }
-    }
-
-    // =========================================================================================
-    // Sub-stage 1.8 - additional / supporting documents (home, business, other)
-    // =========================================================================================
-
-    private void handleAdditionalDocs(CustomerUpdateDtls cd, String applicationId, TbObCustomer customer,
-                                      String uploadedBy, LocalDateTime now) throws JsonProcessingException {
-        AdditionalDocuDet ad = cd.getAdditionalDocuDet();
-
-        if (ad == null || CollectionUtils.isEmpty(ad.getDocumentList())) {
-            return;
-        }
-        if (cd.getPayload() != null) {
-            Map<String, Object> payload = customer.getPayload() != null ? customer.getPayload() : new HashMap<>();
-            payload.putAll(cd.getPayload());
-            customer.setPayload(payload);
-        }
-        for (DocumentListItem document : ad.getDocumentList()) {
-            saveDocument(document.getDocumentDetails(), applicationId, customer.getCustomerId(), uploadedBy, now);
-        }
-    }
-
-    // =========================================================================================
-    // shared helpers
-    // =========================================================================================
-
     private void mergeVerification(CustomerUpdateDtls cd, TbObCustomer customer) {
+        System.out.println("cd: " + cd.getVerficationDet());
         if (CollectionUtils.isEmpty(cd.getVerficationDet())) {
             return;
         }
@@ -617,72 +370,6 @@ public class ApplicationServiceImpl implements ApplicationService {
         customer.setVerificationDet(merged);
     }
 
-    /** Overload for document types whose category comes straight from the payload (default). */
-    private void saveDocument(DocumentDetail doc, String applicationId, String customerId, String uploadedBy, LocalDateTime now) throws JsonProcessingException {
-        saveDocument(doc, applicationId, customerId, uploadedBy, now, doc.getCategory());
-    }
-
-    /**
-     * Maps one wire-level {@link DocumentDetail} onto a {@code tb_ob_document} row and persists it.
-     * docu_id is issued by the client and is stable/unique per application, so this is an upsert
-     * (save acts as insert-or-update against the composite PK).
-     * <p>
-     * NOTE: legal_doc_name and kyc_type are NOT NULL on tb_ob_document, but a few document types
-     * (e.g. the live member photo, plain home/business photos) don't carry either field in the
-     * payload. Defensive defaults are applied below; confirm with the product/schema owner whether
-     * these columns should be made nullable for non-KYC document categories instead.
-     */
-    private void saveDocument(DocumentDetail doc, String applicationId, String customerId, String uploadedBy,
-                              LocalDateTime now, String categoryOverride) throws JsonProcessingException {
-        TbObDocument document = documentRepository.findById(
-                        new TbObDocumentId(applicationId, doc.getDocuId()))
-                .orElse(TbObDocument.builder()
-                        .applicationId(applicationId)
-                        .docuId(doc.getDocuId())
-                        .createdTs(now)
-                        .docVersion(1)
-                        .build());
-
-        boolean isUpdate = document.getUploadedAt() != null;
-
-        document.setDocuId(doc.getDocuId());
-        document.setCustomerId(customerId);
-        document.setCategory(categoryOverride != null ? categoryOverride : "OTHER");
-        document.setSubCat(doc.getSubCat() != null ? doc.getSubCat() : "NA");
-        document.setKycType(doc.getKycType() != null ? doc.getKycType() : "NON-KYC");
-        document.setAuthMode(doc.getAuthMode());
-        document.setIdType(doc.getIdType());
-        document.setMemRelation(doc.getMemRelation());
-        document.setMappingId(doc.getMappingId() != null ? doc.getMappingId() : null);
-        document.setLegalDocName(doc.getLegalDocName() != null ? doc.getLegalDocName() : document.getSubCat());
-        document.setLegalDocId(doc.getLegalDocId());
-        document.setDmsDocIdFront(doc.getDocuNoF());
-        document.setDmsDocIdBack(doc.getDocuNoB());
-        document.setPhoto(doc.getPhoto());
-        document.setPayload(objectMapper.writeValueAsString(doc.getPayload()));
-        document.setStatus(doc.getStatus() != null ? doc.getStatus() : "uncaptured");
-        document.setScore(doc.getLivePhotoScore());
-//        document.setOcrData(doc.getOcrData());
-//        document.setInputData(doc.getInputData());
-        document.setIsEdited(Boolean.TRUE.equals(doc.getIsEdited()));
-        document.setEditedBy(doc.getEditedBy());
-        document.setEditedFields(doc.getEditedFields());
-        document.setReuploadedBy(doc.getReUploadedBy());
-        document.setReason(doc.getReason());
-        document.setClarityScore(doc.getClarityScore());
-        document.setClarityPass(doc.getClarityPass());
-        document.setDedupeStatus(doc.getDedupeStatus());
-        document.setValidationStatus("pending");
-        document.setUploadedBy(uploadedBy);
-        document.setUploadedAt(now);
-        document.setUpdatedTs(now);
-        if (isUpdate) {
-            document.setDocVersion(document.getDocVersion() + 1);
-        }
-
-        documentRepository.save(document);
-    }
-
     private void assertNotLockedByAnotherUser(String applicationId, String userId) {
         Optional<TbObRecordLock> activeLock = recordLockRepository.findByApplicationIdAndStatus(applicationId, "ACTIVE");
         activeLock.ifPresent(lock -> {
@@ -691,6 +378,51 @@ public class ApplicationServiceImpl implements ApplicationService {
             }
         });
     }
+
+ /*   private TbObCustAuditTrail buildAuditEntry(Object request, String applicationId, String stage, String subStage,
+                                               String wfstatus, TbObApplicationMaster master, TbObCustomer customer,
+                                               Map<String, Object> addInfo) {
+        String userId, userName, userRole, appId, appVersion;
+        if (request instanceof CreateApplicationRequest r) {
+            userId = r.getUserId();
+            userName = r.getUserName();
+            userRole = r.getUserRole();
+            appId = r.getAppId();
+            appVersion = r.getAppVersion();
+        } else {
+            UpdateApplicationRequest r = (UpdateApplicationRequest) request;
+            userId = r.getUserId();
+            userName = r.getUserName();
+            userRole = r.getUserRole();
+            appId = r.getAppId();
+            appVersion = r.getAppVersion();
+        }
+
+        return TbObCustAuditTrail.builder()
+                .appId(appId)
+                .applicationId(applicationId)
+                .userId(userId)
+                .userName(userName)
+                .userRole(userRole)
+                .stageId(stage)
+                .subStage(subStage)
+                .wfStatus(wfstatus)
+                .customerId(String.valueOf(customer.getCustomerId()))
+                .customerName(customer.getCustomerName())
+                .mobileNo(
+                        customer.getKycDetails() != null
+                                ? String.valueOf(customer.getKycDetails().get("mobileNum"))
+                                : master.getMobileNumber()
+                )
+                .kendraId(master.getKendraId() != null ? master.getKendraId() : null)
+                .kendraName(master.getKendraName())
+                .groupId(master.getGroupId() != null ? master.getGroupId() : null)
+                .branchId(master.getBranchId())
+                .addInfo1(addInfo)
+                .appVersion(appVersion)
+                .createTs(LocalDateTime.now())
+                .build();
+    }*/
 
     private Long parseLong(String value) {
         if (value == null || value.isBlank()) return null;
@@ -711,18 +443,6 @@ public class ApplicationServiceImpl implements ApplicationService {
         }
     }
 
-    private LocalDate parseDob(String dob) {
-        try {
-            return LocalDate.parse(dob, DOB_FORMAT);
-        } catch (Exception ex) {
-            log.warn("Could not parse dob '{}', expected dd/MM/yyyy", dob);
-            return null;
-        }
-    }
-
-    /**
-     * @param lockDurationMinutes configured TIMED lock duration (onboarding.record-lock.timed-lock-duration-minutes)
-     */
     @Transactional
     public ResponseWrapper getApplicationDetails(FetchApplicationDetailsRequest req, long lockDurationMinutes) throws JsonProcessingException {
         FetchApplicationHandler fetchApplicationHandler = fetchApplicationHandlerResolver.resolve("KM");
@@ -733,12 +453,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         }
     }
 
-    /**
-     * Writes an audit row for the given application. Used here for the
-     * APPLICATION_VIEWED event mandated by API 9; other APIs (create/update)
-     * will call this with their own event codes.
-     */
-    public void recordEvent(TbObApplicationMaster app, AuditEventType eventType,
+  /*  public void recordEvent(TbObApplicationMaster app, AuditEventType eventType,
                             String userId, String userName, String userRole) {
 
         LocalDateTime now = LocalDateTime.now();
@@ -767,5 +482,5 @@ public class ApplicationServiceImpl implements ApplicationService {
                 .build();
 
         custAuditTrailRepository.save(audit);
-    }
+    }*/
 }

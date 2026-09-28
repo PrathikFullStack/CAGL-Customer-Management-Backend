@@ -16,7 +16,7 @@ import java.math.BigDecimal;
 public class GRTHouseVisitRequestFields {
 
     @JsonProperty("customerId")
-    private Long customerId;
+    private String customerId;
 
     @JsonProperty("amGPSInfo")
     private GPSCaptureRequestFields amGPSInfo;

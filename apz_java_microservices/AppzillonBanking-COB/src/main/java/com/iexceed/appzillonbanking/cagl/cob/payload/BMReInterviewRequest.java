@@ -29,6 +29,12 @@ public class BMReInterviewRequest {
     @JsonProperty("userName")
     private String userName;
 
+    @JsonProperty("userRole")
+    private String userRole;
+
+    @JsonProperty("versionNum")
+    private String versionNum;
+
     @JsonProperty("requestObj")
     private BMReInterviewRequestFields requestObj;
 }

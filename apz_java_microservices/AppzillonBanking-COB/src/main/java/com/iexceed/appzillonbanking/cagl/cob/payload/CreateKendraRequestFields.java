@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -16,6 +17,7 @@ import java.util.Map;
 @AllArgsConstructor
 @NoArgsConstructor
 public class CreateKendraRequestFields {
+
 
     @JsonProperty("kendraName")
     private String kendraName;
@@ -29,17 +31,35 @@ public class CreateKendraRequestFields {
     @JsonProperty("addressLine1")
     private String addressLine1;
 
+    @JsonProperty("addressLine2")
+    private String addressLine2;
+
+    @JsonProperty("addressLine3")
+    private String addressLine3;
+
+    @JsonProperty("addressLine4")
+    private String addressLine4;
+
     @JsonProperty("state")
     private Integer state;
 
     @JsonProperty("district")
     private String district;
 
+    @JsonProperty("taluk")
+    private String taluk;
+
     @JsonProperty("village")
     private String village;
 
     @JsonProperty("pincode")
     private String pincode;
+
+    @JsonProperty("areaType")
+    private String areaType;
+
+    @JsonProperty("villageType")
+    private String villageType;
 
     @JsonProperty("gpsLatitude")
     private BigDecimal gpsLatitude;
@@ -53,8 +73,11 @@ public class CreateKendraRequestFields {
     @JsonProperty("meetingDay")
     private String meetingDay;
 
-    @JsonProperty("meetingTime")
-    private String meetingTime;
+    @JsonProperty("meetingTimeFrom")
+    private String meetingTimeFrom;
+
+    @JsonProperty("meetingTimeTo")
+    private String meetingTimeTo;
 
     @JsonProperty("meetingPlace")
     private String meetingPlace;
@@ -65,14 +88,12 @@ public class CreateKendraRequestFields {
     @JsonProperty("firstMeetingDate")
     private LocalDate firstMeetingDate;
 
-    @JsonProperty("photoDocId")
-    private String photoDocId;
+    @JsonProperty("projectionMeetingDate")
+    private LocalDate projectionMeetingDate;
 
     @JsonProperty("dmsFolderIdx")
     private String dmsFolderIdx;
 
-
     @JsonProperty("payload")
     private Map<String, Object> payload;
-
 }

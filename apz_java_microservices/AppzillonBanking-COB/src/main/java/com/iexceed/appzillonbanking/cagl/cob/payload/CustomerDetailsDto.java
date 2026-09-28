@@ -9,6 +9,7 @@ import java.util.Map;
 public record CustomerDetailsDto(String mobileNum,String alterMobileNum,
                                  String language, String deviceType,
                                  String customerId,
+                                 String locationDetails,
                                  String photoDocId,
                                  Map<String, Object> kycDetails,
                                  MemberPhotoDto memberPhoto,
@@ -18,5 +19,6 @@ public record CustomerDetailsDto(String mobileNum,String alterMobileNum,
                                  IncomeDetailsDto incomeDet,
                                  BankDetailsDto bankDet,
                                  AdditionalDetailsDto additionalDocuDet,
+                                 LoanDetailsDto loanDetails,
                                  Map<String, Object> verificationDet) {
 }

@@ -20,7 +20,7 @@ import java.util.Map;
 public class TbObCustOthers {
 
     @Id
-    @StringSequenceGenerator(sequenceName = "seq_ob_cust_others_id")
+//    @StringSequenceGenerator(sequenceName = "seq_ob_cust_others_id")
     @Column(name = "cust_others_id", nullable = false)
     @JsonProperty("custOthersId")
     private String custOtherId;

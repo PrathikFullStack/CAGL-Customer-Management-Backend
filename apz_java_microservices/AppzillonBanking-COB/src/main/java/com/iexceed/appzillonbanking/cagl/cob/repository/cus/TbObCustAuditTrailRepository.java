@@ -10,4 +10,6 @@ public interface TbObCustAuditTrailRepository extends JpaRepository<TbObCustAudi
     List<TbObCustAuditTrail> findByApplicationIdOrderByCreateTsDesc(String applicationId, Pageable pageable);
     List<TbObCustAuditTrail> findByApplicationId(String applicationId);
     List<TbObCustAuditTrail> findByCustomerId(String customerId);
+
+
 }

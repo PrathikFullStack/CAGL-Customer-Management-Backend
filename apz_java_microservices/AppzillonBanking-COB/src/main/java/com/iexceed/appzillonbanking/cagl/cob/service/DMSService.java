@@ -3,48 +3,24 @@ package com.iexceed.appzillonbanking.cagl.cob.service;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.Date;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
+import java.util.Base64;
 
+import com.iexceed.appzillonbanking.cagl.cob.domain.cus.*;
+import com.iexceed.appzillonbanking.cagl.cob.payload.*;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import com.google.gson.Gson;
 import com.iexceed.appzillonbanking.cagl.cob.domain.ab.TbObApplicationMaster;
-import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObDMSSessionDataEntity;
-import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObDocument;
-import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObGroup;
-import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObKendra;
-import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObOtherDocument;
-import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObPhotoThumbnail;
-import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObPhotoThumbnailId;
-import com.iexceed.appzillonbanking.cagl.cob.payload.DmsDocumenRequestFields;
-import com.iexceed.appzillonbanking.cagl.cob.payload.DmsDocumentRequest;
-import com.iexceed.appzillonbanking.cagl.cob.payload.DmsRequest;
-import com.iexceed.appzillonbanking.cagl.cob.payload.FetchDmsDocumenRequestFields;
-import com.iexceed.appzillonbanking.cagl.cob.payload.FetchDmsDocumentRequest;
-import com.iexceed.appzillonbanking.cagl.cob.payload.Folder;
-import com.iexceed.appzillonbanking.cagl.cob.payload.InputData;
-import com.iexceed.appzillonbanking.cagl.cob.payload.NGOAddFolderInput;
-import com.iexceed.appzillonbanking.cagl.cob.payload.NGOConnectCabinetInput;
-import com.iexceed.appzillonbanking.cagl.cob.payload.NGOExecuteAPIBDO;
-import com.iexceed.appzillonbanking.cagl.cob.payload.NGOExecuteAPIBDORequest;
-import com.iexceed.appzillonbanking.cagl.cob.payload.UploadDmsDocumenRequestFields;
-import com.iexceed.appzillonbanking.cagl.cob.payload.UploadDmsDocumentRequest;
-import com.iexceed.appzillonbanking.cagl.cob.repository.cus.OnboardingRepository;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObDMSSessionDataRepo;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObGroupRepository;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObKendraRepository;
@@ -61,6 +37,7 @@ import com.iexceed.appzillonbanking.core.payload.ResponseWrapper;
 import com.iexceed.appzillonbanking.core.utils.CommonUtils;
 import com.iexceed.appzillonbanking.interfaceAdapter.service.InterfaceAdapter;
 import com.iexceed.appzillonbanking.interfaceAdapter.utils.AdapterUtil;
+import com.iexceed.appzillonbanking.cagl.cob.repository.ab.TbObApplicationMasterRepository;
 
 import net.coobird.thumbnailator.Thumbnails;
 import reactor.core.publisher.Mono;
@@ -80,9 +57,6 @@ public class DMSService {
 	private AdapterUtil adapterUtil;
 
 	@Autowired
-	private OnboardingRepository applicationMaster;
-
-	@Autowired
 	private TbObKendraRepository kendradetails;
 
 	@Autowired
@@ -96,6 +70,13 @@ public class DMSService {
 
 	@Autowired
 	private TbObPhotoThumbnailRepository tbObPhotoThumbnailRepo;
+
+	@Autowired
+	private TbObApplicationMasterRepository tbObApplicationMasterRepo;
+
+	@Autowired
+	@Lazy
+	private DMSUploadService dmsUploadService;
 
 	public static final String DMS_SESSION_INTERFACEID = "dmsSession";
 	public static final String DMS_FOLDER_INDEX_INTERFACEID = "dmsFolderIndex";
@@ -132,8 +113,11 @@ public class DMSService {
 
 	public Mono<ResponseWrapper> processDMSDoc(DmsDocumentRequest apiRequest, Header header) {
 		try {
-			if (apiRequest == null || apiRequest.getRequestObj() == null || apiRequest.getRequestObj().isEmpty()) {
-				LOG.error("Invalid request: apiRequest or requestObj is null/empty");
+			if (apiRequest == null || apiRequest.getApiRequest() == null
+					|| apiRequest.getApiRequest().getRequestObj() == null
+					|| apiRequest.getApiRequest().getRequestObj().getDocList() == null
+					|| apiRequest.getApiRequest().getRequestObj().getDocList().isEmpty()) {
+				LOG.error("Invalid request: apiRequest or requestObj/docList is null/empty");
 				return Mono.just(buildFailureWrapper(INVALIDAPP_MSG));
 			}
 
@@ -141,8 +125,11 @@ public class DMSService {
 			LOG.info("Processing DMS document operation: [{}]", operationType);
 
 			switch (operationType) {
-			case OP_UPLOAD:
-				return handleUploadOperation(apiRequest, header).map(this::buildUploadListWrapper);
+				case OP_UPLOAD:
+					List<DmsDocumenRequestFields> docList = apiRequest.getApiRequest().getRequestObj().getDocList();
+					return handleUploadOperation(apiRequest, header)
+							.doOnNext(responses -> dmsUploadService.captureFailedUploads(docList, responses, apiRequest, header))
+						.map(this::buildUploadListWrapper);
 			case OP_FETCH:
 				return handleFetchOperation(apiRequest, header);
 			case OP_FETCHALL:
@@ -184,11 +171,16 @@ public class DMSService {
 	}
 
 	private String resolveOperationType(DmsDocumentRequest apiRequest) {
-		String op = apiRequest.getRequestObj().get(0).getOperationType();
-		return (op == null) ? "" : op.trim().toLowerCase();
+		if (apiRequest == null
+				|| apiRequest.getApiRequest() == null
+				|| apiRequest.getApiRequest().getOperationType() == null) {
+			return "";
+		}
+		return apiRequest.getApiRequest().getOperationType().trim().toLowerCase();
 	}
 
-	private String resolveType(String type) {
+	private String resolveType(DmsRequestObj requestObj) {
+		String type = (requestObj == null) ? null : requestObj.getType();
 		return (type == null) ? "" : type.trim().toLowerCase();
 	}
 
@@ -213,39 +205,53 @@ public class DMSService {
 		return Optional.of(normalized);
 	}
 
-	private Mono<List<ResponseWrapper>> handleUploadOperation(DmsDocumentRequest apiRequest, Header header) {
+	public Mono<List<ResponseWrapper>> handleUploadOperation(
+			DmsDocumentRequest apiRequest,
+			Header header) {
 
-		List<DmsDocumenRequestFields> requestObjList = apiRequest.getRequestObj();
+		List<DmsDocumenRequestFields> requestObjList =
+				apiRequest.getApiRequest().getRequestObj().getDocList();
 
 		if (requestObjList == null || requestObjList.isEmpty()) {
 			LOG.error("No request objects received for DMS upload");
 			return Mono.just(new ArrayList<>(List.of(buildFailureWrapper())));
 		}
 
-		// Empty accumulator se shuru; har item ka result add karte jaate hain.
 		Mono<List<ResponseWrapper>> chain = Mono.just(new ArrayList<>());
 
 		for (DmsDocumenRequestFields requestObj : requestObjList) {
-			// har iteration ke liye header ki apni copy -> koi race / mutation nahi
+
 			Header perItemHeader = copyHeader(header);
-			chain = chain.flatMap(acc -> handleSingleUpload(requestObj, perItemHeader,apiRequest).map(resp -> {
-				acc.add(resp);
-				return acc;
-			}));
+
+			chain = chain.flatMap(acc ->
+					handleSingleUpload(
+							requestObj,
+							perItemHeader,
+							apiRequest,
+							apiRequest.getApiRequest().getRequestObj()
+					).map(resp -> {
+						acc.add(resp);
+						return acc;
+					})
+			);
 		}
 
 		return chain;
 	}
 
-	private Mono<ResponseWrapper> handleSingleUpload(DmsDocumenRequestFields requestObj, Header header,DmsDocumentRequest apiRequest) {
+	private Mono<ResponseWrapper> handleSingleUpload(
+			DmsDocumenRequestFields requestObj,
+			Header header,
+			DmsDocumentRequest apiRequest,
+			DmsRequestObj dmsRequestObj) {
 		try {
 			Date today = new Date();
-			DmsRequest sessionRequest =  buildDmsRequest(apiRequest);
+			DmsRequest sessionRequest = buildDmsRequest(apiRequest);
 			UploadDmsDocumentRequest dmsDocumentRequest = new UploadDmsDocumentRequest();
 			UploadDmsDocumenRequestFields requestFields = new UploadDmsDocumenRequestFields();
 
-			String type = requestObj.getType();
-			String id = requestObj.getId();
+			String type = dmsRequestObj.getType();
+			String id = null;
 
 			requestFields.setFileData(requestObj.getFileData());
 			requestFields.setDocumentName(requestObj.getDocumentName());
@@ -253,13 +259,75 @@ public class DMSService {
 
 			dmsDocumentRequest.setRequestObj(requestFields);
 
-			if (requestObj.isExisting()) {
+			String applicationId = dmsRequestObj.getApplicationId();
 
-				Optional<String> existingFolderIndex = getExistingFolderIndex(type, id);
-				if (existingFolderIndex.isEmpty()) {
-					LOG.error("isExisting=true but no folder index found for type: {}, id: {}", type, id);
-					return Mono.just(buildFailureWrapper());
+			// Validate and check existing folderIndex based on type
+			Optional<String> existingFolderIndex = Optional.empty();
+
+			switch (type == null ? "" : type.toLowerCase()) {
+				case "customer": {
+					if (applicationId == null || applicationId.isEmpty()) {
+						LOG.error("Empty or null applicationId in the request");
+						return Mono.just(buildFailureWrapper("Invalid applicationId"));
+					}
+					Optional<TbObApplicationMaster> appMasterOpt = tbObApplicationMasterRepo.findByApplicationId(applicationId);
+					if (appMasterOpt.isEmpty()) {
+						LOG.error("ApplicationId not found in the database: {}", applicationId);
+						return Mono.just(buildFailureWrapper("Invalid applicationId"));
+					}
+					TbObApplicationMaster appMaster = appMasterOpt.get();
+					existingFolderIndex = Optional.ofNullable(appMaster.getDmsFolderIdx())
+							.filter(idx -> !idx.trim().isEmpty());
+					// customerId needed for folder generation if folderIndex absent
+					id = appMaster.getCustomerId(); // <-- pick customerId from applicationMaster
+					break;
 				}
+
+				case "kendra": {
+					if (applicationId == null || applicationId.isEmpty()) {
+						LOG.error("Empty or null kendraId in the request");
+						return Mono.just(buildFailureWrapper("Invalid kendraId"));
+					}
+					String kendraId = applicationId; // frontend now sends kendraId in applicationId
+					Optional<TbObKendra> kendraOpt = kendradetails.findByKendraId(kendraId);
+					if (kendraOpt.isEmpty()) {
+						LOG.error("KendraId not found in kendra table: {}", kendraId);
+						return Mono.just(buildFailureWrapper("Invalid kendraId"));
+					}
+					existingFolderIndex = kendraOpt
+							.map(TbObKendra::getDmsFolderIdx)
+							.filter(idx -> idx != null && !idx.trim().isEmpty());
+					id = kendraId;
+					break;
+				}
+
+				case "group": {
+					if (applicationId == null || applicationId.isEmpty()) {
+						LOG.error("Empty or null groupId in the request");
+						return Mono.just(buildFailureWrapper("Invalid groupId"));
+					}
+					String groupId = applicationId; // frontend now sends groupId in applicationId
+					Optional<TbObGroup> groupOpt = groupDetails.findByGroupId(groupId);
+					if (groupOpt.isEmpty()) {
+						LOG.error("GroupId not found in group table: {}", groupId);
+						return Mono.just(buildFailureWrapper("Invalid groupId"));
+					}
+					existingFolderIndex = groupOpt
+							.map(TbObGroup::getDmsFolderIdx)
+							.filter(idx -> idx != null && !idx.trim().isEmpty());
+					id = groupId;
+					break;
+				}
+				default:
+					LOG.error("Invalid type: {}", type);
+					return Mono.just(buildFailureWrapper("Invalid type"));
+			}
+
+			final String finalId = id;
+			final String finalApplicationId = applicationId;
+
+			// If folderIndex already exists, reuse it directly
+			if (existingFolderIndex.isPresent()) {
 				String folderIndex = existingFolderIndex.get();
 				LOG.info("Using existing folder index for type: {}, id: {}, index: {}", type, id, folderIndex);
 				dmsDocumentRequest.getRequestObj().setFolderIndex(folderIndex);
@@ -269,33 +337,54 @@ public class DMSService {
 						DMS_DOCUMENT_UPLOAD, true);
 				return adapterUtil.generateRespWrapper(apiResponse, DMS_DOCUMENT_UPLOAD, header, true)
 						.map(uploadResponse -> {
-							persistUploadResponse(uploadResponse, requestObj, header);
+							persistUploadResponse(uploadResponse, requestObj, header, type, applicationId, dmsRequestObj);
 							return uploadResponse;
 						}).onErrorResume(e -> {
 							LOG.error("exception at upload DMS Document Api", e);
-							return Mono.just(buildFailureWrapper());
+							return Mono.just(buildFailureWrapper("DMS document upload failed, please re-trigger the upload"));
 						});
 			}
-
-			// no existing folder index => session + naya folder index generate karo
+			Optional<String> recheckFolder = getExistingFolderIndex(type.toLowerCase(),
+					"customer".equalsIgnoreCase(type) ? finalApplicationId : finalId);
+			if (recheckFolder.isPresent()) {
+				LOG.warn("Duplicate avoided — folderIndex found on re-check for type={}, id={}, index={}",
+						type, "customer".equalsIgnoreCase(type) ? finalApplicationId : finalId, recheckFolder.get());
+				dmsDocumentRequest.getRequestObj().setFolderIndex(recheckFolder.get());
+				header.setInterfaceId(DMS_DOCUMENT_UPLOAD);
+				Mono<Object> apiResponse = interfaceAdapter.callExternalService(header, dmsDocumentRequest,
+						DMS_DOCUMENT_UPLOAD, true);
+				return adapterUtil.generateRespWrapper(apiResponse, DMS_DOCUMENT_UPLOAD, header, true)
+						.map(uploadResponse -> {
+							persistUploadResponse(uploadResponse, requestObj, header, type, applicationId, dmsRequestObj);
+							return uploadResponse;
+						}).onErrorResume(e -> {
+							LOG.error("exception at upload DMS Document Api", e);
+							return Mono.just(buildFailureWrapper("DMS document upload failed, please re-trigger the upload"));
+						});
+			}
+			LOG.info("No folderIndex found even on re-check, proceeding to generate new folder for type={}, id={}", type, finalId);
 			return getDMSSessionId(today, header, sessionRequest).flatMap(sessionWrapper -> {
 
 				String userDBId = extractResponseObj(sessionWrapper);
 				if (userDBId == null || userDBId.isBlank()) {
 					LOG.error("Unable to fetch DMS session id / userDBId");
-					return Mono.just(buildFailureWrapper());
+					return Mono.just(buildFailureWrapper("DMS SessionId generation failed, please re-trigger the upload"));
 				}
 				LOG.debug("userDBId resolved : {}", userDBId);
 
-				return generateFolderIndex(header, type, id, userDBId, lDMSProperties,apiRequest).flatMap(folderIndex -> {
+				return generateFolderIndex(header, type, finalId, userDBId, lDMSProperties, apiRequest).flatMap(folderIndex -> {
 
 					if (folderIndex == null || folderIndex.isBlank()) {
 						LOG.error("Unable to generate folder index");
-						return Mono.just(buildFailureWrapper());
+						return Mono.just(buildFailureWrapper("DMS FolderIndex generation failed, please re-trigger the upload"));
 					}
 					LOG.debug("Generated folderIndex : {}", folderIndex);
-
-					updateDmsFolderIndex(type, id, folderIndex);
+					LOG.info("Persisting newly generated folderIndex={} for type={}, id={}", folderIndex, type,
+							"customer".equalsIgnoreCase(type) ? finalApplicationId : finalId);
+					updateDmsFolderIndex(
+							type,
+							"customer".equalsIgnoreCase(type) ? finalApplicationId : finalId,
+							folderIndex);
 					dmsDocumentRequest.getRequestObj().setFolderIndex(folderIndex);
 
 					header.setInterfaceId(DMS_DOCUMENT_UPLOAD);
@@ -303,39 +392,51 @@ public class DMSService {
 							DMS_DOCUMENT_UPLOAD, true);
 					return adapterUtil.generateRespWrapper(apiResponse, DMS_DOCUMENT_UPLOAD, header, true)
 							.map(uploadResponse -> {
-								persistUploadResponse(uploadResponse, requestObj, header);
+								persistUploadResponse(uploadResponse, requestObj, header, type, applicationId, dmsRequestObj);
 								return uploadResponse;
 							});
 				});
 			}).onErrorResume(e -> {
 				LOG.error("exception at upload DMS Document Api", e);
-				return Mono.just(buildFailureWrapper());
+				String msg = e.getMessage() != null && e.getMessage().contains("Timeout")
+						? "DMS server timeout, please re-trigger the upload"
+						: "DMS FolderIndex/SessionId issue, please re-trigger the upload";
+				return Mono.just(buildFailureWrapper(msg));
 			});
 
 		} catch (Exception e) {
 			LOG.error("exception at upload DMS Document Api", e);
-			return Mono.just(buildFailureWrapper());
+			return Mono.just(buildFailureWrapper("DMS upload failed, please re-trigger the upload"));
 		}
 	}
 
+	public Mono<ResponseWrapper> uploadDocumentForRetry(
+			DmsDocumenRequestFields requestObj,
+			Header header,
+			DmsDocumentRequest apiRequest,
+			DmsRequestObj dmsRequestObj) {
+
+		return handleSingleUpload(requestObj, header, apiRequest, dmsRequestObj
+		);
+	}
 
 	private Mono<ResponseWrapper> handleFetchOperation(DmsDocumentRequest requFields, Header header) {
 		try {
 			FetchDmsDocumentRequest apiRequest = new FetchDmsDocumentRequest();
 			FetchDmsDocumenRequestFields requestObj = new FetchDmsDocumenRequestFields();
-			apiRequest.setAppId(requFields.getAppId());
-			apiRequest.setInterfaceName(requFields.getInterfaceName());
-			apiRequest.setUserId(requFields.getUserId());
-			requestObj.setDocIndex(requFields.getRequestObj().get(0).getDocIndex());
+			apiRequest.setAppId(requFields.getApiRequest().getAppId());
+			apiRequest.setInterfaceName(requFields.getApiRequest().getInterfaceName());
+			apiRequest.setUserId(requFields.getApiRequest().getUserId());
+			requestObj.setDocIndex(requFields.getApiRequest().getRequestObj().getDocList().get(0).getDocIndex());
 			apiRequest.setRequestObj(requestObj);
-
 			return fetchDocumentByType(apiRequest, header);
-
 		} catch (Exception e) {
 			LOG.error("Exception in handleFetchOperation", e);
 			return Mono.just(buildFailureWrapper());
 		}
 	}
+
+
 
 	private Mono<ResponseWrapper> fetchDocumentByType(FetchDmsDocumentRequest apiRequest, Header header) {
 		LOG.debug("Printing FetchDmsDocumentRequest: {}", apiRequest);
@@ -361,9 +462,30 @@ public class DMSService {
 
 	private Mono<ResponseWrapper> handleFetchAllOperation(DmsDocumentRequest apiRequest, Header header) {
 		try {
-			DmsDocumenRequestFields reqFields = apiRequest.getRequestObj().get(0);
-			String type = resolveType(reqFields.getType());
-			String id = reqFields.getId();
+			DmsDocumenRequestFields reqFields =
+					apiRequest.getApiRequest().getRequestObj().getDocList().get(0);
+
+			String type = resolveType(apiRequest.getApiRequest().getRequestObj());
+			String applicationId = apiRequest.getApiRequest().getRequestObj().getApplicationId();
+
+			if (applicationId == null || applicationId.isEmpty()) {
+				LOG.error("Empty or null applicationId in fetchAll request");
+				return Mono.just(buildFailureWrapper("Invalid applicationId"));
+			}
+
+			String id;
+			if (TYPE_CUSTOMER.equalsIgnoreCase(type)) {
+				id = applicationId; // fetchAllDocumentByType uses applicationId for customer
+			} else if (TYPE_KENDRA.equalsIgnoreCase(type) || TYPE_GROUP.equalsIgnoreCase(type)) {
+				id = applicationId; // frontend now sends kendraId/groupId directly
+				if (id == null || id.isEmpty()) {
+					LOG.error("Empty or null id for type: {}", type);
+					return Mono.just(buildFailureWrapper("Invalid " + type + " id"));
+				}
+			} else {
+				LOG.error("Invalid type: {}", type);
+				return Mono.just(buildFailureWrapper(INVALIDAPP_MSG));
+			}
 
 			return fetchAllDocumentByType(type, id, reqFields, header);
 
@@ -432,7 +554,9 @@ public class DMSService {
 
 		List<Mono<ResponseWrapper>> fetchMonos = docIndices.stream().map(docIndex -> {
 			FetchDmsDocumentRequest apiRequest = new FetchDmsDocumentRequest();
-			apiRequest.getRequestObj().setDocIndex(docIndex);
+			FetchDmsDocumenRequestFields requestObj = new FetchDmsDocumenRequestFields();
+			requestObj.setDocIndex(docIndex);
+			apiRequest.setRequestObj(requestObj);
 
 			return fetchDocumentByType(apiRequest, copyHeader(header)).onErrorResume(e -> {
 				LOG.warn("Error fetching document with index: {}", docIndex);
@@ -455,9 +579,33 @@ public class DMSService {
 
 	/** Multiple upload responses ko ek success wrapper (JSON array) me convert karta hai. */
 	private ResponseWrapper buildUploadListWrapper(List<ResponseWrapper> wrappers) {
-		List<Object> responseObjs = wrappers.stream().map(w -> (Object) extractResponseObj(w))
+		boolean anyFailure = wrappers.stream().anyMatch(w -> {
+			if (w == null || w.getApiResponse() == null
+					|| w.getApiResponse().getResponseHeader() == null) return true;
+			String code = w.getApiResponse().getResponseHeader().getResponseCode();
+			return !"0".equals(code);
+		});
+
+		List<Object> responseObjs = wrappers.stream()
+				.map(w -> (Object) extractResponseObj(w))
 				.collect(Collectors.toList());
-		return buildSuccessWrapperWithList(responseObjs);
+		Response response = new Response();
+		ResponseHeader responseHeader = new ResponseHeader();
+		ResponseBody responseBody = new ResponseBody();
+		String jsonArray = new Gson().toJson(responseObjs);
+		responseBody.setResponseObj(jsonArray);
+
+		if (anyFailure) {
+			CommonUtils.generateHeaderForFailure(responseHeader, EXCEPTION_OCCURED);
+		} else {
+			CommonUtils.generateHeaderForSuccess(responseHeader);
+		}
+
+		response.setResponseBody(responseBody);
+		response.setResponseHeader(responseHeader);
+		ResponseWrapper responseWrapper = new ResponseWrapper();
+		responseWrapper.setApiResponse(response);
+		return responseWrapper;
 	}
 
 	private ResponseWrapper buildSuccessWrapperWithList(List<Object> responseList) {
@@ -474,13 +622,13 @@ public class DMSService {
 		return responseWrapper;
 	}
 
-	private Mono<ResponseWrapper> getDMSSessionId(Date today, Header header, DmsRequest requestWrapper) {
-	    Optional<TbObDMSSessionDataEntity> sessionData = tbObDMSSessionDataRepo.getSessionData(today);
-	    if (sessionData.isPresent()) {
-	        String sessionId = sessionData.get().getSessionId();
-	        LOG.debug("Session Id found in DB : {}", sessionId);
-	        return Mono.just(buildSuccessWrapper(sessionId));
-	    }
+	public Mono<ResponseWrapper> getDMSSessionId(Date today, Header header, DmsRequest requestWrapper) {
+		Optional<TbObDMSSessionDataEntity> sessionData = tbObDMSSessionDataRepo.getSessionData(today);
+		if (sessionData.isPresent()) {
+			String sessionId = sessionData.get().getSessionId();
+			LOG.info("Session Id found in DB : {} (picked latest for date={})", sessionId, today);
+			return Mono.just(buildSuccessWrapper(sessionId));
+		}
 	    LOG.debug("Session not found in DB. Calling DMS_SESSION API");
 	    return dmsSessionAPIReactive(header, requestWrapper).map(dmsSessionResponse -> {
 	        LOG.debug("DMS_SESSION API execution completed");
@@ -599,7 +747,7 @@ public class DMSService {
 	            });
 	}
 
-	private Mono<String> generateFolderIndex(Header header, String type, String t24Id, String userDBId,
+	public Mono<String> generateFolderIndex(Header header, String type, String t24Id, String userDBId,
 			Map<String, String> lDMSProperties, DmsDocumentRequest apiRequest) {
 
 		DmsRequest folderRequest =  buildDmsRequest(apiRequest);
@@ -749,30 +897,51 @@ public class DMSService {
 	// Persistence
 	// ------------------------------------------------------------------
 
-	private void persistUploadResponse(ResponseWrapper uploadResponse, DmsDocumenRequestFields reqField,
-			Header header) {
+	private void persistUploadResponse(
+			ResponseWrapper uploadResponse,
+			DmsDocumenRequestFields reqFields,
+			Header header,
+			String type,
+			String applicationId,
+			DmsRequestObj dmsRequestObj){
 		try {
-			String type = resolveType(reqField.getType());
+			type = resolveType(dmsRequestObj);
+			if (applicationId == null || applicationId.isEmpty()) {
+				LOG.error("Empty or null applicationId, skipping thumbnail persist");
+				return;
+			}
 			if (!TYPE_CUSTOMER.equalsIgnoreCase(type)) {
 				LOG.info("Skipping thumbnail persist, type is not customer: {}", type);
 				return;
 			}
 
-			Optional<String> subTypeOpt = resolveValidSubType(reqField.getSubType());
+			Optional<String> subTypeOpt = resolveValidSubType(reqFields.getSubType());
+
 			if (subTypeOpt.isEmpty()) {
-				LOG.info("Skipping thumbnail persist, invalid/unsupported subType: {}", reqField.getSubType());
+				LOG.info("Skipping thumbnail persist, invalid/unsupported subType: {}", reqFields.getSubType());
 				return;
 			}
 
-			String responseObj = String.valueOf(uploadResponse.getApiResponse().getResponseBody().getResponseObj());
+			String responseObj = String.valueOf(
+					uploadResponse.getApiResponse()
+							.getResponseBody()
+							.getResponseObj());
+
 			JSONObject responseJson = new JSONObject(responseObj);
 
 			String documentIndex = extractDocumentIndex(responseJson);
+
 			if (documentIndex == null || documentIndex.isBlank()) {
 				return;
 			}
 
-			persistPhotoThumbnail(documentIndex, subTypeOpt.get(), reqField, header);
+			persistPhotoThumbnail(
+					documentIndex,
+					subTypeOpt.get(),
+					reqFields,
+					header,
+					applicationId);
+
 		} catch (Exception e) {
 			LOG.error("Error while persisting photo thumbnail", e);
 		}
@@ -801,10 +970,13 @@ public class DMSService {
 		return documentIndex;
 	}
 
-	private void persistPhotoThumbnail(String documentIndex, String subType, DmsDocumenRequestFields reqFields,
-			Header header) {
+	private void persistPhotoThumbnail(
+			String documentIndex,
+			String subType,
+			DmsDocumenRequestFields reqFields,
+			Header header,
+			String applicationId)  {
 		try {
-			String applicationId = reqFields.getApplicationId();
 
 			byte[] thumbBytes = generateThumbnail(reqFields.getFileData());
 
@@ -816,7 +988,10 @@ public class DMSService {
 			thumbnail.setApplicationId(applicationId);
 			thumbnail.setDocuId(documentIndex);
 			thumbnail.setDocuType(subType);
-			thumbnail.setCustomerId(parseLongSafe(reqFields.getId()));
+			thumbnail.setCustomerId(parseLongSafe(
+					tbObApplicationMasterRepo.findByApplicationId(applicationId)
+							.map(TbObApplicationMaster::getCustomerId)
+							.orElse(null)));
 			thumbnail.setMimeType(reqFields.getFileType());
 			thumbnail.setWidth("96");
 			thumbnail.setHeight("96");
@@ -857,7 +1032,7 @@ public class DMSService {
 	// Common helpers
 	// ------------------------------------------------------------------
 
-	private String extractResponseObj(ResponseWrapper wrapper) {
+	public String extractResponseObj(ResponseWrapper wrapper) {
 		if (wrapper != null && wrapper.getApiResponse() != null && wrapper.getApiResponse().getResponseBody() != null
 				&& wrapper.getApiResponse().getResponseBody().getResponseObj() != null) {
 			return String.valueOf(wrapper.getApiResponse().getResponseBody().getResponseObj());
@@ -905,11 +1080,11 @@ public class DMSService {
 
 			switch (type.toLowerCase()) {
 			case "customer":
-				Optional<TbObApplicationMaster> customerOpt = applicationMaster.findById(id);
+				Optional<TbObApplicationMaster> customerOpt = tbObApplicationMasterRepo.findById(id);
 				if (customerOpt.isPresent()) {
 					TbObApplicationMaster customer = customerOpt.get();
 					customer.setDmsFolderIdx(index);
-					applicationMaster.save(customer);
+					tbObApplicationMasterRepo.save(customer);
 					LOG.info("DMS folder index updated successfully for customer ID: {}", id);
 				} else {
 					LOG.error("Customer not found with ID: {}", id);
@@ -962,7 +1137,7 @@ public class DMSService {
 		try {
 			switch (type == null ? "" : type.toLowerCase()) {
 			case "customer":
-				return applicationMaster.findById(id)
+				return tbObApplicationMasterRepo.findById(id)
 						.map(TbObApplicationMaster::getDmsFolderIdx)
 						.filter(index -> index != null && !index.trim().isEmpty());
 
@@ -993,13 +1168,17 @@ public class DMSService {
 			return Optional.empty();
 		}
 	}
-	
-	private DmsRequest buildDmsRequest(DmsDocumentRequest apiRequest) {
-	    return DmsRequest.builder()
-	            .interfaceName(apiRequest.getInterfaceName())
-	            .appId(apiRequest.getAppId())
-	            .userId(apiRequest.getUserId())
-	            .build();
+
+	public DmsRequest buildDmsRequest(DmsDocumentRequest apiRequest) {
+		return DmsRequest.builder()
+				.interfaceName(apiRequest.getApiRequest().getInterfaceName())
+				.appId(apiRequest.getApiRequest().getAppId())
+				.userId(apiRequest.getApiRequest().getUserId())
+				.build();
+	}
+
+	public static Map<String, String> getDmsProperties() {
+		return lDMSProperties;
 	}
 
 }

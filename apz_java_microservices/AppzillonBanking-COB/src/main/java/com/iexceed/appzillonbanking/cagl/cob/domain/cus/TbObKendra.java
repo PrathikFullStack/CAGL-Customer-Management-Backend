@@ -23,7 +23,6 @@ public class TbObKendra implements Serializable {
     private static final long serialVersionUID = 1L;
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "kendra_id", nullable = false)
     private String kendraId;
 
@@ -84,19 +83,22 @@ public class TbObKendra implements Serializable {
 
     @Column(name = "blacklist_status", nullable = false)
     @Builder.Default
-    private String blacklistStatus = "PENDING";
+    private String blacklistStatus = "CLEAR";
 
     @Column(name = "blacklist_ts")
     private LocalDateTime blacklistTs;
 
-    @Column(name = "t24_kendra_id")
-    private String t24KendraId;
+    @Column(name = "t24_ref_no")
+    private String t24RefNo;
 
     @Column(name = "last_activity_ts")
     private LocalDateTime lastActivityTs;
 
     @Column(name = "dms_folder_idx")
     private String dmsFolderIdx;
+
+    @Column(name = "dms_upload_flag")
+    private String dmsUploadFlag;
 
     @Column(name = "photo_doc_id")
     private String photoDocId;
@@ -116,7 +118,7 @@ public class TbObKendra implements Serializable {
     @Column(name = "updated_ts")
     private LocalDateTime updatedTs;
 
-    @Column(name="total_group_count")
+    @Column(name = "total_group_count")
     private Integer totalGroupCount;
 
 

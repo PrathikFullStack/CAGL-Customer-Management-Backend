@@ -14,4 +14,10 @@ public class FetchApplicationDetailsRequestFields {
     private String userId;
     private String userName;
     private String userRole;
+    private String accessType = AccessEnum.RESTRICT.name();
+
+    private enum AccessEnum {
+        VIEW,
+        RESTRICT
+    }
 }

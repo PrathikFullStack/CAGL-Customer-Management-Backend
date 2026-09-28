@@ -140,5 +140,7 @@ public class Applicant {
     @JsonProperty("StateBranch")
     private String stateBranch;
 
+    @JsonProperty("kendra_activation_date")
+    private String kendraActivationDate;
 
 }

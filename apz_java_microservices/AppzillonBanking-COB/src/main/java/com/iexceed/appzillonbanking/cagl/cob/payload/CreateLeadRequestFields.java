@@ -20,6 +20,9 @@ public class CreateLeadRequestFields {
     @JsonProperty("branchId")
     private String branchId;
 
+    @JsonProperty("kendraId")
+    private String kendraId;
+
     @JsonProperty("records")
     private List<LeadRecord> records;
 

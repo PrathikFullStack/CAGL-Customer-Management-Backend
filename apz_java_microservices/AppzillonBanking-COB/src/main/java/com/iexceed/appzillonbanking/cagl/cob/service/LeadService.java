@@ -3,10 +3,13 @@ package com.iexceed.appzillonbanking.cagl.cob.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iexceed.appzillonbanking.cagl.cob.domain.ab.TbObApplicationMaster;
+import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbAsmiUser;
 import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObLead;
 import com.iexceed.appzillonbanking.cagl.cob.payload.*;
 import com.iexceed.appzillonbanking.cagl.cob.repository.ab.TbObApplicationMasterRepository;
+import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbAsmiUserRepository;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObLeadRepository;
+import com.iexceed.appzillonbanking.cagl.cob.utils.RequestValidationUtils;
 import com.iexceed.appzillonbanking.core.payload.*;
 import com.iexceed.appzillonbanking.core.utils.CommonUtils;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +43,12 @@ public class LeadService {
     private TbObApplicationMasterRepository tbObApplicationMasterRepository;
 
     @Autowired
+    private TbAsmiUserRepository tbAsmiUserRepository;
+
+    @Autowired
+    private AuditService auditService;
+
+    @Autowired
     private final RestTemplate restTemplate;
 
     @Value("${lead.create.url}")
@@ -50,6 +59,9 @@ public class LeadService {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private DuplicateValidationService duplicateValidationService;
 
     private static final Logger logger = LogManager.getLogger(LeadService.class);
 
@@ -63,13 +75,22 @@ public class LeadService {
         ResponseBody responseBody = new ResponseBody();
         try {
             CreateLeadRequestFields requestObj = request.getRequestObj();
-            validateSelection(requestObj);
+//            validateSelection(requestObj);
             validateDuplicateRequest(requestObj);
-            Response duplicateResponse = validateDatabaseDuplicate(requestObj);
-            if (duplicateResponse != null) {
-                return duplicateResponse;
+            List<String> validationErrors = RequestValidationUtils.validateLeadRequest(requestObj);
+            if (!validationErrors.isEmpty()) {
+                log.warn("Lead request validation failed: {}", validationErrors);
+                return buildValidationFailureResponse(validationErrors);
             }
-            List<TbObLead> savedLeads = saveLeadRecords(requestObj, request.getUserId());
+            Response duplicateCheckResponse = duplicateValidationService.validateDatabaseDuplicate(
+                    requestObj.getRecords(),
+                    CreateLeadRequestFields.LeadRecord::getMemberMobile,
+                    DuplicateValidationService.DuplicateCheckScope.LEAD_CREATION);
+
+            if (duplicateCheckResponse != null) {
+                return duplicateCheckResponse;
+            }
+            List<TbObLead> savedLeads = saveLeadRecords(requestObj, request.getUserId(), request.getInterfaceName());
             // If this throws an exception, saveLeadRecords() will be rolled back
             invokeCaglLeadCreation(request, header, savedLeads);
             responseBody.setResponseObj(objectMapper.writeValueAsString(buildSuccessResponse(savedLeads)));
@@ -86,6 +107,17 @@ public class LeadService {
         }
         return response;
     }
+
+    public static Response buildValidationFailureResponse(List<String> validationErrors) {
+        ResponseHeader responseHeader = new ResponseHeader();
+        CommonUtils.generateHeaderForFailure(responseHeader, String.join(" | ", validationErrors));
+
+        Response response = new Response();
+        response.setResponseHeader(responseHeader);
+        response.setResponseBody(new ResponseBody());
+        return response;
+    }
+
     private void validateSelection(CreateLeadRequestFields requestObj) {
         logger.info("Inside validateSelection");
         long selectedCount = requestObj.getRecords()
@@ -116,6 +148,8 @@ public class LeadService {
         ResponseBody responseBody = new ResponseBody();
 
         for (CreateLeadRequestFields.LeadRecord record : requestObj.getRecords()) {
+
+            // 1. Duplicate check against tb_ob_lead (existing OPEN leads)
             Optional<TbObLead> duplicateLead =
                     leadRepository.findDuplicate(record.getMemberMobile(), "OPEN");
             if (duplicateLead.isPresent()) {
@@ -126,6 +160,8 @@ public class LeadService {
                 response.setResponseBody(responseBody);
                 return response;
             }
+
+            // 2. Duplicate check against tb_ob_application_master (already onboarded customers)
             Optional<TbObApplicationMaster> customer =
                     tbObApplicationMasterRepository.findByMobileNumber(record.getMemberMobile());
             if (customer.isPresent()) {
@@ -134,24 +170,34 @@ public class LeadService {
                 response.setResponseBody(responseBody);
                 return response;
             }
+
+            // 3. Duplicate check against tb_asmi_user (already registered app users)
+            Optional<TbAsmiUser> asmiUser =
+                    tbAsmiUserRepository.findByMobileNumber(record.getMemberMobile());
+            if (asmiUser.isPresent()) {
+                CommonUtils.generateHeaderForFailure(responseHeader, "User already exists.");
+                response.setResponseHeader(responseHeader);
+                response.setResponseBody(responseBody);
+                return response;
+            }
         }
         return null;
     }
-    private List<TbObLead> saveLeadRecords(CreateLeadRequestFields requestObj, String userId) {
+    private List<TbObLead> saveLeadRecords(CreateLeadRequestFields requestObj, String userId, String interfaceName) {
         logger.info("Inside saveLeadRecords");
         LocalDateTime currentTime = LocalDateTime.now();
         List<TbObLead> leadList = new ArrayList<>();
         for (CreateLeadRequestFields.LeadRecord record : requestObj.getRecords()) {
             TbObLead lead = buildLeadEntity(
-                    record, requestObj.getBranchId(), userId, currentTime);
+                    record, requestObj.getBranchId(), requestObj.getKendraId(), userId, currentTime);
             leadList.add(lead);
         }
             List<TbObLead> savedLeads = leadRepository.saveAll(leadList);
-        savedLeads.forEach(this::auditLeadCreation);
+        savedLeads.forEach(lead -> auditLeadCreation(lead, userId, interfaceName));
         logger.info("{} Lead(s) saved successfully", savedLeads.size());
         return savedLeads;
     }
-    private TbObLead buildLeadEntity(CreateLeadRequestFields.LeadRecord record, String branchId, String userId, LocalDateTime currentTime) {
+    private TbObLead buildLeadEntity(CreateLeadRequestFields.LeadRecord record, String branchId,String kendraId, String userId, LocalDateTime currentTime) {
 
         String leadId = generateLeadId(userId);
         record.setLeadId(leadId);
@@ -161,6 +207,7 @@ public class LeadService {
         lead.setCustomerName(record.getMemberName());
         lead.setMobileNumber(record.getMemberMobile());
         lead.setBranchId(branchId);
+        lead.setKendraId(kendraId);
         lead.setKmId(userId);
         lead.setStatus("OPEN");
         lead.setCreatedBy(userId);
@@ -273,13 +320,14 @@ public class LeadService {
         }
     }
 
-    private void auditLeadCreation(TbObLead lead) {
+    private void auditLeadCreation(TbObLead lead, String userId, String interfaceName) {
         logger.info("Lead Created Successfully");
         logger.info("LeadId : {}", lead.getLeadId());
         logger.info("Customer : {}", lead.getCustomerName());
         logger.info("Mobile : {}", lead.getMobileNumber());
-        // TODO
-        // Save into Audit Table
+        auditService.saveApplicationLeadAudit(lead, userId, interfaceName);
+        auditService.saveUserAudit(interfaceName, lead.getLeadId(), null, userId, null, null,
+                lead.getBranchId(), lead.getKendraId(), null, lead);
     }
 
     @Transactional

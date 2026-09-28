@@ -22,10 +22,8 @@ import java.util.Map;
 public class TbObBMReInterview {
 
     @Id
-//    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "reinterview_id", nullable = false)
     @JsonProperty("reinterviewId")
-//    private Long reinterviewId;
     private String reinterviewId;
 
     @Column(name = "application_id", nullable = false)
@@ -46,58 +44,53 @@ public class TbObBMReInterview {
 
     @Column(name = "doc_verified")
     @JsonProperty("docVerified")
-    private Boolean docVerified;
+    @Builder.Default
+    private Boolean docVerified = false;
 
     @Column(name = "doc_verified_ts")
     @JsonProperty("docVerifiedTs")
-//    private Long docVerifiedTs;
     private LocalDateTime docVerifiedTs;
 
     @JsonProperty("docVerifyPayload")
-//    @JdbcTypeCode(SqlTypes.JSON)
-//    @Column(name = "doc_verify_payload", columnDefinition = "jsonb")
     @Column(name = "doc_verify_payload", columnDefinition = "TEXT")
-//    private List<Map<String, Object>> docVerifyPayload;
     private String docVerifyPayload;
 
     @Column(name = "kt_questions_count")
     @JsonProperty("ktQuestionsCount")
-    private Integer ktQuestionsCount;
+    @Builder.Default
+    private Integer ktQuestionsCount = 5;
 
     @Column(name = "kt_score")
     @JsonProperty("ktScore")
     private Integer ktScore;
 
     @JsonProperty("ktAnswers")
-//    @JdbcTypeCode(SqlTypes.JSON)
-//    @Column(name = "kt_answers", columnDefinition = "jsonb")
     @Column(name = "kt_answers", columnDefinition = "TEXT")
-//    private List<Map<String, Object>> ktAnswers;
     private String ktAnswers;
 
     @Column(name = "kt_completed_ts")
     @JsonProperty("ktCompletedTs")
     private LocalDateTime ktCompletedTs;
 
-    @Column(name = "bm_gps_latitude")
-    @JsonProperty("bmGpsLatitude")
-    private BigDecimal bmGpsLatitude;
+//    @Column(name = "bm_gps_latitude")
+//    @JsonProperty("bmGpsLatitude")
+//    private BigDecimal bmGpsLatitude;
+//
+//    @JsonProperty("bmGpsLongitude")
+//    @Column(name = "bm_gps_longitude")
+//    private BigDecimal bmGpsLongitude;
 
-    @JsonProperty("bmGpsLongitude")
-    @Column(name = "bm_gps_longitude")
-    private BigDecimal bmGpsLongitude;
+//    @JsonProperty("bmGpsAccuracy")
+//    @Column(name = "bm_gps_accuracy")
+//    private BigDecimal bmGpsAccuracy;
 
-    @JsonProperty("bmGpsAccuracy")
-    @Column(name = "bm_gps_accuracy")
-    private BigDecimal bmGpsAccuracy;
+//    @JsonProperty("kmGpsLatitude")
+//    @Column(name = "km_gps_latitude")
+//    private BigDecimal kmGpsLatitude;
 
-    @JsonProperty("kmGpsLatitude")
-    @Column(name = "km_gps_latitude")
-    private BigDecimal kmGpsLatitude;
-
-    @JsonProperty("kmGpsLongitude")
-    @Column(name = "km_gps_longitude")
-    private BigDecimal kmGpsLongitude;
+//    @JsonProperty("kmGpsLongitude")
+//    @Column(name = "km_gps_longitude")
+//    private BigDecimal kmGpsLongitude;
 
     @JsonProperty("gpsDistanceBmKm")
     @Column(name = "gps_distance_bm_km")
@@ -105,7 +98,8 @@ public class TbObBMReInterview {
 
     @JsonProperty("gpsMismatchFlag")
     @Column(name = "gps_mismatch_flag")
-    private Character gpsMismatchFlag;
+    @Builder.Default
+    private Character gpsMismatchFlag = 'N';
 
     @JsonProperty("distFromKendraM")
     @Column(name = "dist_from_kendra_m")
@@ -113,7 +107,8 @@ public class TbObBMReInterview {
 
     @JsonProperty("distFromKendraFlag")
     @Column(name = "dist_from_kendra_flag")
-    private Character distFromKendraFlag;
+    @Builder.Default
+    private Character distFromKendraFlag = 'N';
 
     @JsonProperty("locationCapturedTs")
     @Column(name = "location_captured_ts")
@@ -137,48 +132,19 @@ public class TbObBMReInterview {
 
     @JsonProperty("loanEditedByBm")
     @Column(name = "loan_edited_by_bm")
-    private Character loanEditedByBm;
-
-//    @JsonProperty("breTriggered")
-//    @Column(name = "bre_triggered")
-//    private Character breTriggered;
-//
-//    @JsonProperty("breStatus")
-//    @Column(name = "bre_status")
-//    private String breStatus;
-//
-//    @JsonProperty("breEligibleAmt")
-//    @Column(name = "bre_eligible_amt")
-//    private BigDecimal breEligibleAmt;
-//
-//    @JsonProperty("cbValidityExceeded")
-//    @Column(name = "cb_validity_exceeded")
-//    private Character cbValidityExceeded;
-//
-//    @JsonProperty("unnatiEligible")
-//    @Column(name = "unnati_eligible")
-//    private Character unnatiEligible;
+    @Builder.Default
+    private Character loanEditedByBm = 'N';
 
     @JsonProperty("questionnaireAnswers")
-//    @JdbcTypeCode(SqlTypes.JSON)
-//    @Column(name = "questionnaire_answers", columnDefinition = "jsonb")
     @Column(name = "questionnaire_answers", columnDefinition = "TEXT")
-//    private List<Map<String, Object>> questionnaireAnswers;
     private String questionnaireAnswers;
-
-//    @JsonProperty("unnatiRedirect")
-//    @Column(name = "unnati_redirect")
-//    private Character unnatiRedirect;
 
     @JsonProperty("decision")
     @Column(name = "decision")
     private String decision;
 
     @JsonProperty("rejectionReasons")
-//    @JdbcTypeCode(SqlTypes.JSON)
-//    @Column(name = "rejection_reasons", columnDefinition = "jsonb")
     @Column(name = "rejection_reasons", columnDefinition = "TEXT")
-//    private List<String> rejectionReasons;
     private String rejectionReasons;
 
     @JsonProperty("decisionRemarks")
@@ -189,37 +155,20 @@ public class TbObBMReInterview {
     @Column(name = "decision_ts")
     private LocalDateTime decisionTs;
 
-//    @JsonProperty("transferDone")
-//    @Column(name = "transfer_done")
-//    private Character transferDone;
-//
-//    @JsonProperty("transferFromKendra")
-//    @Column(name = "transfer_from_kendra")
-//    private String transferFromKendra;
-//
-//    @JsonProperty("transferFromGroup")
-//    @Column(name = "transfer_from_group")
-//    private String transferFromGroup;
-//
-//    @JsonProperty("transferToKendra")
-//    @Column(name = "transfer_to_kendra")
-//    private String transferToKendra;
-//
-//    @JsonProperty("transferToGroup")
-//    @Column(name = "transfer_to_group")
-//    private String transferToGroup;
-//
-//    @JsonProperty("transferTs")
-//    @Column(name = "transfer_ts")
-//    private Long transferTs;
-
     @JsonProperty("status")
     @Column(name = "status")
-    private String status;    // PENDING / IN_PROGRESS / COMPLETED / REJECTED
+    @Builder.Default
+    private String status = "PENDING";    // PENDING / IN_PROGRESS / COMPLETED / REJECTED
 
+    // TEXT. JSON array, one entry per subStage encountered so far, e.g.
+    // [{"subStage":"1.1","verified":"Y"},{"subStage":"1.2","verified":"N"}].
+    // 1.1 = Document Verification, 1.2 = Knowledge Test, 1.3 = Capture House Location,
+    // 1.4 = Capture Member House Photo, 1.5 = Loan Details, 1.6 = Review.
+    // verified = "Y" for a real submit (isDraft=false/absent) touching that subStage, "N" for a
+    // draft save (isDraft=true) -- see BMReinterviewProcessor#buildSubStagePayload.
     @JsonProperty("subStage")
-    @Column(name = "sub_stage")
-    private String subStage;     // 1.1 = Document Verification, 1.2 = Knowledge Test, 1.3 = Capture House Location, 1.4 = Capture Member House Photo, 1.5 = Loan Details
+    @Column(name = "sub_stage", columnDefinition = "TEXT")
+    private String subStage;
 
     @JsonProperty("subStageStatus")
     @Column(name = "sub_stage_status")

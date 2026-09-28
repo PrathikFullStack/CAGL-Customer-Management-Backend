@@ -22,23 +22,8 @@ public class PopulateapplnWFRequestFields {
 	@JsonProperty("createdBy")
 	private String createdBy;
 
-	@JsonProperty("applicationId")
-	private String applicationId;
-
-	@JsonProperty("applicationStatus")
-	private String applicationStatus;
-
 	@JsonProperty("appId")
 	private String appId;
-
-	@JsonProperty("versionNum")
-	private String versionNum;
-	
-	@JsonProperty("cbApproveManual")
-	private String cbApproveManual;
-	/*
-	 * @JsonProperty("type") private String type;
-	 */
 	
 	@JsonProperty("userRole")
 	private String userRole;
@@ -46,9 +31,4 @@ public class PopulateapplnWFRequestFields {
 	@JsonProperty("userName")
 	private String userName;
 	
-	@JsonProperty("appVersion")
-	private String appVersion;
-	
-	@JsonProperty("remarks")
-	private String remarks;
 }

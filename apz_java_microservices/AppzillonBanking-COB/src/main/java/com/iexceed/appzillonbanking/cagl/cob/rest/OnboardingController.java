@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+import com.iexceed.appzillonbanking.cagl.cob.service.OnboardingAmlBreService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +39,7 @@ import reactor.core.publisher.Mono;
 import com.iexceed.appzillonbanking.cagl.cob.payload.TransferApplicationRequest;
 import com.iexceed.appzillonbanking.cagl.cob.payload.*;
 import com.iexceed.appzillonbanking.interfaceAdapter.utils.AdapterUtil;
+import com.iexceed.appzillonbanking.cagl.cob.payload.AmlBreCheckRequestWrapper;
 
 @RestController
 @Tag(description = "application/cob", name = "ON BOARDING")
@@ -53,6 +55,9 @@ public class OnboardingController {
 
 	@Autowired
 	private AdapterUtil adapterUtil;
+
+	@Autowired
+	private OnboardingAmlBreService onboardingAmlBreService;
 
 
 	@ApiResponses({ @ApiResponse(responseCode = "200", description = "DMS Document Uploaded Successfully"),
@@ -260,6 +265,61 @@ public class OnboardingController {
 		response.setResponseHeader(responseHeader);
 		response.setResponseBody(responseBody);
 		return Mono.just(ResponseEntity.ok(new ResponseWrapper(response)));
+	}
+
+	@ApiResponses({ @ApiResponse(responseCode = "200", description = "AppzillonBanking API reachable"),
+			@ApiResponse(responseCode = "408", description = "Service Timed Out"),
+			@ApiResponse(responseCode = "500", description = "Internal Server Error"),
+			@ApiResponse(responseCode = "404", description = "AppzillonBanking not reachable") })
+	@Operation(summary = "Onboarding AML BRE Check", description = "API for onboarding combined AML and BRE check")
+	@PostMapping(value = "/onboardingAmlBreCheck", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+	public Mono<ResponseEntity<ResponseWrapper>> onboardingAmlBreCheck(@RequestBody AmlBreCheckRequestWrapper requestWrapper,
+																	   @RequestHeader String appId, @RequestHeader String interfaceId, @RequestHeader String userId,
+																	   @RequestHeader String masterTxnRefNo, @RequestHeader String deviceId) {
+		logger.debug("Onboarding AML+BRE check API call started for applicationId: {}",
+				requestWrapper.getApiRequest().getRequestObj().getApplicationId());
+		logger.warn("Start : Onboarding AmlBreCheck with request :: {}", requestWrapper);
+		Header header = CommonUtils.obtainHeader(appId, interfaceId, userId, masterTxnRefNo, deviceId);
+		logger.debug("Onboarding AmlBreCheck Header value :: {} ", header);
+		AmlBreCheckRequest amlBreCheckRequest = requestWrapper.getApiRequest();
+		Mono<Object> response = onboardingAmlBreService.processAmlBreCheck(amlBreCheckRequest, header);
+		logger.debug("Onboarding AmlBreCheck response :: {} ", response);
+		return adapterUtil.generateResponseWrapper(response, amlBreCheckRequest.getInterfaceName(), header, true);
+	}
+
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Video links fetched successfully"),
+			@ApiResponse(responseCode = "408", description = "Service Timed Out"),
+			@ApiResponse(responseCode = "500", description = "Internal Server Error"),
+			@ApiResponse(responseCode = "404", description = "Video Service Not Reachable")
+	})
+	@Operation(summary = "Fetch Video Links", description = "API to fetch training video links for a given user and language")
+	@PostMapping(value = "/videolinks", produces = MediaType.APPLICATION_JSON_VALUE)
+	public Mono<ResponseEntity<ResponseWrapper>> fetchVideoLinks(
+			@RequestHeader String appId,
+			@RequestHeader String interfaceId,
+			@RequestHeader String userId,
+			@RequestHeader String masterTxnRefNo,
+			@RequestHeader String deviceId,
+			@RequestBody VideoLinkRequest request) {
+
+		com.iexceed.appzillonbanking.core.payload.Header header = CommonUtils.obtainHeader(appId, interfaceId, userId, masterTxnRefNo, deviceId);
+		logger.debug("fetchVideoLinks: header :: {}", header);
+		return onboardingService.fetchVideoLinks(request, header)
+				.map(ResponseEntity::ok)
+				.onErrorResume(e -> {
+					logger.error("fetchVideoLinks: error in controller", e);
+					ResponseWrapper responseWrapper = new ResponseWrapper();
+					Response response = new Response();
+					ResponseHeader responseHeader = new ResponseHeader();
+					ResponseBody responseBody = new ResponseBody();
+					CommonUtils.generateHeaderForFailure(responseHeader, "Failed to fetch video links");
+					responseBody.setResponseObj("");
+					response.setResponseBody(responseBody);
+					response.setResponseHeader(responseHeader);
+					responseWrapper.setApiResponse(response);
+					return Mono.just(ResponseEntity.ok(responseWrapper));
+				});
 	}
 
 }

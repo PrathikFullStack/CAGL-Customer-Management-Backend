@@ -2,8 +2,8 @@ package com.iexceed.appzillonbanking.cagl.cob.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObCustomer;
 import com.iexceed.appzillonbanking.cagl.cob.enums.ApplicationStatus;
 import com.iexceed.appzillonbanking.cagl.cob.enums.WFStage;
 import com.iexceed.appzillonbanking.cagl.cob.exception.GRTValidationException;
@@ -12,6 +12,7 @@ import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObGRT;
 import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObGroup;
 import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObKendra;
 import com.iexceed.appzillonbanking.cagl.cob.payload.*;
+import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObCustomerRepository;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObGRTRepository;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObGroupRepository;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObKendraRepository;
@@ -52,6 +53,9 @@ public class GRTService {
     private TbObApplicationMasterRepository applicationMasterRepository;
 
     @Autowired
+    private TbObCustomerRepository customerRepository;
+
+    @Autowired
     private SequenceUtil sequenceUtil;
 
     @Autowired
@@ -80,8 +84,12 @@ public class GRTService {
     private static final Character DEFAULT_FLAG_N = 'N';
     private static final String GRT_ID_SEQUENCE = "seq_ob_grt_schedule_id";
 
+    // tb_ob_customer.kyc_details stores its fields nested one level under this key, not at the
+    // column's JSON root -- see extractKycDetailsMap/wrapKycDetailsMap.
+    private static final String KYC_DETAILS_WRAPPER_KEY = "kycDetails";
+
     @Transactional
-    public Mono<Response> submitBMReInterview(GRTSubmitRequest request, Header header) {
+    public Mono<Response> submitGRT(GRTSubmitRequest request, Header header) {
 
         logger.info("GRT Submit API Started.");
         ResponseHeader responseHeader = new ResponseHeader();
@@ -121,7 +129,10 @@ public class GRTService {
             }
             grtRepository.save(grt);
 
+            recordAmHouseVisitLocations(requestObj.getHouseVisit(), request.getUserId());
+
             if (!isDraft) {
+                // TODO Need to put validation while stage moment we need to check the photoDedupeStatus in tb_ob_application_master
                 rejectAbsentMembers(requestObj, request.getUserId());
                 updateApplicationStage(requestObj, request.getUserId());
             }
@@ -399,7 +410,7 @@ public class GRTService {
     //GL should be from same group
     private void validateGLBelongsToGroup(String glCustomerId, String groupId){
         TbObApplicationMaster applicationMaster = applicationMasterRepository.findByCustomerId(glCustomerId)
-                .orElseThrow(() -> new GRTValidationException("Group Id not fond while checking for the gl-ID"));
+                .orElseThrow(() -> new GRTValidationException("Group Id not found while checking for the gl-ID"));
         if (!groupId.equals(applicationMaster.getGroupId())){
             throw new GRTValidationException("GL should belong to same group.");
         }
@@ -408,7 +419,7 @@ public class GRTService {
     //KL should be from any of the groups under the particular kendra
     private void validateKLBelongsToKendra(String klCustomerId, String kendraId){
         TbObApplicationMaster applicationMaster = applicationMasterRepository.findByCustomerId(klCustomerId)
-                .orElseThrow(() -> new GRTValidationException("Kendra Id not fond while checking for the kl-ID"));
+                .orElseThrow(() -> new GRTValidationException("Kendra Id not found while checking for the kl-ID"));
         if (!kendraId.equals(applicationMaster.getKendraId())){
             throw new GRTValidationException("KL should belong to same kendra.");
         }
@@ -426,7 +437,7 @@ public class GRTService {
     private void checkForGlKlExistence(String groupId, String kendraId, String glCustomerId, String klCustomerId, String userId){
 
         TbObGroup group = groupRepository.findByGroupId(groupId)
-                .orElseThrow(() -> new GRTValidationException("Group Id not fond while validating GL"));
+                .orElseThrow(() -> new GRTValidationException("Group Id not found while validating GL"));
 
         if (glCustomerId.equals(group.getGroupLeaderId())) {
             logger.info("Group Id : {} - GL customerId : {} already assigned, no update required.", groupId, glCustomerId);
@@ -441,7 +452,7 @@ public class GRTService {
         }
 
         TbObKendra kendra = kendraRepository.findByKendraId(kendraId)
-                .orElseThrow(() -> new GRTValidationException("Kendra Id not fond while validating KL"));
+                .orElseThrow(() -> new GRTValidationException("Kendra Id not found while validating KL"));
 
         if (klCustomerId.equals(kendra.getKendraLeaderId())) {
             logger.info("Kendra Id : {} - KL customerId : {} already assigned, no update required.", kendraId, klCustomerId);
@@ -471,6 +482,7 @@ public class GRTService {
         }
         return requestObj.getAttendance().size() - getAbsentCount(requestObj);
     }
+
     private Integer getAbsentCount(GRTSubmitRequestFields requestObj) {
 
         if (requestObj.getAttendance() == null) {
@@ -511,6 +523,23 @@ public class GRTService {
         }
     }
 
+    /**
+     * Deserializes {@code tb_ob_application_master.add_info1} (now a TEXT column) back into a
+     * mutable {@code Map<String, Object>} so callers can add/overwrite a key and persist it again
+     * via {@link #toJsonOrEmpty}. A null/blank value is treated as an empty, mutable map.
+     */
+    private Map<String, Object> fromJsonOrEmptyMap(String json) {
+
+        if (json == null || json.isBlank()) {
+            return new HashMap<>();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            throw new RuntimeException("Error parsing stored JSON value.", e);
+        }
+    }
+
     private void updateApplicationStage(GRTSubmitRequestFields requestObj, String userId) {
 
         logger.info("Updating application stage for Group Id : {}", requestObj.getGroupId());
@@ -548,7 +577,7 @@ public class GRTService {
                 default:
                     throw new GRTValidationException("Invalid decision : " + requestObj.getDecision());
             }
-            application.setVersion(String.valueOf(Integer.parseInt(application.getVersion()) + 1));
+            application.setVersion(nextVersion(application.getVersion()));
             application.setUpdatedBy(userId);
             application.setUpdatedTs(now);
         }
@@ -572,7 +601,7 @@ public class GRTService {
         for (TbObApplicationMaster application : applications) {
             application.setStage("4"); // CGT
             application.setWfStage(WFStage.CGT.name());
-            application.setVersion(String.valueOf(Integer.parseInt(application.getVersion()) + 1));
+            application.setVersion(nextVersion(application.getVersion()));
             application.setStatus(ApplicationStatus.CGT.name());
             application.setUpdatedBy(userId);
             application.setUpdatedTs(now);
@@ -601,6 +630,7 @@ public class GRTService {
                                 "Application not found for customer : "
                                         + attendance.getCustomerId()));
 
+                application.setVersion(nextVersion(application.getVersion()));
                 application.setStatus(ApplicationStatus.REJECTED.name());
                 application.setRemarks(ABSENT_FOR_GRT);
                 application.setUpdatedBy(userId);
@@ -612,32 +642,187 @@ public class GRTService {
     }
 
     /**
-     * Deserializes {@code tb_ob_application_master.add_info1} (now a TEXT column) back into a
-     * mutable {@code Map<String, Object>} so callers can add/overwrite a key and persist it again
-     * via {@link #toJsonOrEmpty}. A null/blank value is treated as an empty, mutable map.
+     * For every house-visit entry that captured the AM's GPS reading, merges it into that
+     * member's {@code tb_ob_customer} row: an {@code {"userRole":"AM","lat":...,"long":...}}
+     * entry is upserted (by {@code userRole}, via {@link #upsertAmLocation}) into
+     * {@code location_details}'s JSON array, and the same lat/long is merged into
+     * {@code kyc_details.gpsLat}/{@code gpsLong} -- the same two-column convention
+     * {@code BMReinterviewProcessor} already uses for the KM/BM roles it captures. Deliberately
+     * an upsert-by-role rather than a full overwrite: unlike BM Reinterview (which always resends
+     * the complete KM+BM list in one call), each GRT house-visit entry only ever carries the AM's
+     * own reading, so overwriting the whole array would erase whatever KM/BM entries an earlier
+     * BM Reinterview call already stored there.
+     * <p>
+     * Runs once per house-visit entry, regardless of {@code isDraft} -- GPS is captured as part of
+     * the visit itself, not gated behind the final decision. Best-effort per member: a customer
+     * that can't be found is logged and skipped rather than failing the whole GRT submission.
      */
-    private Map<String, Object> fromJsonOrEmptyMap(String json) {
+    private void recordAmHouseVisitLocations(List<GRTHouseVisitRequestFields> houseVisits, String userId) {
 
-        if (json == null || json.isBlank()) {
-            return new HashMap<>();
+        if (houseVisits == null || houseVisits.isEmpty()) {
+            return;
         }
-        try {
-            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
-        } catch (Exception e) {
-            throw new RuntimeException("Error parsing stored JSON value.", e);
+
+        for (GRTHouseVisitRequestFields houseVisit : houseVisits) {
+
+            if (houseVisit.getCustomerId() == null || houseVisit.getAmGPSInfo() == null) {
+                continue;
+            }
+
+            String amLat = toLocationString(houseVisit.getAmGPSInfo().getLatitude());
+            String amLon = toLocationString(houseVisit.getAmGPSInfo().getLongitude());
+
+            if (amLat == null && amLon == null) {
+                // amGPSInfo was sent but carried neither a lat nor a long -- nothing usable to
+                // record, and nothing worth a customer fetch+save for.
+                continue;
+            }
+
+            TbObCustomer customer = customerRepository.findByCustomerId(houseVisit.getCustomerId()).orElse(null);
+            if (customer == null) {
+                logger.warn("Skipping AM house-visit location capture -- Customer Id : {} not found in tb_ob_customer.",
+                        houseVisit.getCustomerId());
+                continue;
+            }
+
+            customer.setLocationDetails(toJsonOrEmpty(upsertAmLocation(customer.getLocationDetails(), amLat, amLon)));
+
+            // Only overwrite whichever of gpsLat/gpsLong this call actually captured -- a partial
+            // reading (e.g. latitude only) must not null out a coordinate a previous call already
+            // stored.
+//            Map<String, Object> kycDetails = extractKycDetailsMap(customer.getKycDetails()); //TODO if TEXT
+            Map<String, Object> kycDetails = customer.getKycDetails();
+            if (amLat != null) {
+                kycDetails.put("gpsLat", amLat);
+            }
+            if (amLon != null) {
+                kycDetails.put("gpsLong", amLon);
+            }
+//            customer.setKycDetails(wrapKycDetailsMap(kycDetails)); //TODO if TEXT
+            customer.setKycDetails(kycDetails);
+
+            customer.setUpdatedBy(userId);
+            customer.setUpdatedTs(LocalDateTime.now());
+            customerRepository.save(customer);
+
+            logger.info("tb_ob_customer location/KYC details updated with AM house-visit GPS for Customer Id : {}",
+                    houseVisit.getCustomerId());
         }
     }
 
+    /**
+     * Finds the {@code "AM"} entry in an already-parsed {@code location_details} array and updates
+     * its lat/long in place -- only whichever of {@code lat}/{@code lon} this call actually carries,
+     * so a partial reading never nulls out a coordinate an earlier call already stored -- or adds a
+     * new entry if none exists yet. Any KM/BM entries already present (captured by an earlier BM
+     * Reinterview call) are left untouched.
+     */
+    private List<Map<String, Object>> upsertAmLocation(String existingLocationDetailsJson, String lat, String lon) {
+
+        List<Map<String, Object>> locationDetails = fromJsonOrEmptyList(existingLocationDetailsJson);
+
+        for (Map<String, Object> entry : locationDetails) {
+            if ("AM".equalsIgnoreCase(String.valueOf(entry.get("userRole")))) {
+                if (lat != null) {
+                    entry.put("lat", lat);
+                }
+                if (lon != null) {
+                    entry.put("long", lon);
+                }
+                return locationDetails;
+            }
+        }
+
+        Map<String, Object> amEntry = new LinkedHashMap<>();
+        amEntry.put("userRole", "AM");
+        amEntry.put("lat", lat);
+        amEntry.put("long", lon);
+        locationDetails.add(amEntry);
+        return locationDetails;
+    }
+
+    /**
+     * Deserializes a JSON-text column storing an array of objects (e.g.
+     * {@code tb_ob_customer.location_details}) back into a mutable {@code List<Map<String, Object>>}
+     * so callers can find/update/add an entry in place. A null/blank value is treated as an empty,
+     * mutable list rather than an error. A stored value that parses but isn't an array (e.g. a
+     * pre-migration flat {@code {"lat":..,"lon":..}} capture from before this role-tagged-array
+     * convention existed) is likewise treated as empty/discardable rather than failing the whole
+     * request -- one customer's stale data shouldn't be able to block GRT submission entirely.
+     */
+    private List<Map<String, Object>> fromJsonOrEmptyList(String json) {
+
+        if (json == null || json.isBlank()) {
+            return new ArrayList<>();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception e) {
+            logger.warn("Stored location_details is not a JSON array -- treating as empty/legacy and discarding it. Value : {}", json, e);
+            return new ArrayList<>();
+        }
+    }
+
+    private String toLocationString(BigDecimal value) {
+        return value == null ? null : value.toString();
+    }
+
+    /**
+     * {@code tb_ob_customer.kyc_details} stores its JSON one level deeper than you'd expect -- the
+     * column's own root object has a single {@code "kycDetails"} key holding the actual fields
+     * (gpsLat, gpsLong, mobileNum, ...), rather than those fields sitting at the root themselves --
+     * same convention {@code BMReinterviewProcessor} uses. This unwraps that root and returns the
+     * inner map (an empty, mutable one if the column is null/blank, or if the {@code "kycDetails"}
+     * key is missing/not an object).
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> extractKycDetailsMap(String storedJson) {
+
+        Map<String, Object> stored = fromJsonOrEmptyMap(storedJson);
+        Object inner = stored.get(KYC_DETAILS_WRAPPER_KEY);
+        return inner instanceof Map ? new LinkedHashMap<>((Map<String, Object>) inner) : new LinkedHashMap<>();
+    }
+
+    /** Re-wraps the merged KYC map under {@code "kycDetails"} for storage -- see {@link #extractKycDetailsMap}. */
+    private String wrapKycDetailsMap(Map<String, Object> kycDetails) {
+        return toJsonOrEmpty(Collections.singletonMap(KYC_DETAILS_WRAPPER_KEY, kycDetails));
+    }
+
+    /** Parses a version string, defaulting a null/absent value to "0", and returns the next one. */
+    private String nextVersion(String version) {
+        return String.valueOf(Integer.parseInt(version == null ? "0" : version) + 1);
+    }
+
+    /**
+     * The subset of this call's {@code requestObj} that actually carries data -- for
+     * {@link AuditService#saveApplicationAudit}'s {@code modifiedDetails} parameter. Distinct from
+     * that same call's {@code payload} argument (also {@code requestObj}, passed as-is): payload is
+     * the raw request exactly as sent, while modifiedDetails is what {@link AuditService} flattens
+     * into dotted field paths for the audit trail's {@code editedDetails}/{@code isEdited} columns,
+     * so untouched (null) fields are stripped here first. Returns {@code null} (not an empty map)
+     * when nothing was actually sent, so {@code AuditService} correctly records {@code isEdited = false}.
+     */
+    private Map<String, Object> buildModifiedDetails(GRTSubmitRequestFields requestObj) {
+
+        Map<String, Object> modifiedDetails = objectMapper.convertValue(requestObj, new TypeReference<Map<String, Object>>() {});
+        modifiedDetails.values().removeIf(Objects::isNull);
+        return modifiedDetails.isEmpty() ? null : modifiedDetails;
+    }
+
+    /**
+     * Returns the whole persisted {@code tb_ob_grt} record (every column, via the entity's own
+     * {@code @JsonProperty} names) rather than a hand-picked subset of fields -- same convention
+     * {@link #buildFetchResponse} already uses -- plus a friendly {@code message}. JSON-text
+     * columns (attendance/houseVisit/documentVerification/etc.) are re-inlined via
+     * {@link #jsonInliningUtil} so they render as nested JSON instead of escaped strings.
+     */
     private String buildResponse(TbObGRT grt) {
 
         try {
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("message", "GRT submitted successfully");
-            response.put("grtId", grt.getGrtId());
-            response.put("groupId", grt.getGroupId());
-            response.put("kendraId", grt.getKendraId());
-            response.put("decision", grt.getDecision());
-            response.put("status", grt.getStatus());
+            response.putAll(objectMapper.convertValue(grt, new TypeReference<Map<String, Object>>() {}));
+            jsonInliningUtil.inlineStoredJsonStrings(response);
             return objectMapper.writeValueAsString(response);
 
         } catch (Exception ex) {

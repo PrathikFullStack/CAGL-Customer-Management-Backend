@@ -1,9 +1,8 @@
 package com.iexceed.appzillonbanking.cagl.cob.repository.cus;
 
 import com.iexceed.appzillonbanking.cagl.cob.domain.ab.TbObApplicationMaster;
-import com.iexceed.appzillonbanking.cagl.cob.payload.DashboardCountDTO;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Page;
@@ -14,138 +13,191 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
-public interface OnboardingRepository extends JpaRepository<TbObApplicationMaster, String>
+public interface OnboardingRepository extends JpaRepository<TbObApplicationMaster, String>, JpaSpecificationExecutor<TbObApplicationMaster>
 {
-    long countByWfStage(String wfStage);
-    long countByStatus(String status);
-    long countByWfStageAndBranchId(String wfStage, String branchId);
-    long countByStatusAndBranchId(String status, String branchId);
-    long countByStatusAndChannelTypeAndBranchId(String status, String channelType, String branchId);
+    long countByStage(String stage);
     long countByStageAndBranchId(String stage, String branchId);
-    long countByRecordTypeAndBranchId(String recordType, String branchId);
-    long countByWfStageInAndBranchId(List<String> wfStages, String branchId);
-    long countByRecordTypeInAndBranchId(List<String> recordTypes, String branchId);
-    long countByWfStageAndStatusInAndBranchId(String wfStage, List<String> statuses, String branchId);
-    long countByStatusAndRecordTypeInAndBranchId(String status, List<String> recordTypes, String branchId);
-    long countByWfStageAndKendraIdIn(String wfStage, List<String> kendraIds);
-    long countByStatusAndKendraIdIn(String status, List<String> kendraIds);
-    long countByWfStageInAndKendraIdIn(List<String> wfStages, List<String> kendraIds);
-    long countByRecordTypeInAndKendraIdIn(List<String> recordTypes, List<String> kendraIds);
-    long countByWfStageAndStatusInAndKendraIdIn(String wfStage, List<String> statuses, List<String> kendraIds);
-    long countByGroupIdIn(List<String> groupIds);
-    long countByStatusAndRecordTypeInAndKendraIdIn(String status, List<String> recordTypes, List<String> kendraIds);
-    long countByStatusAndChannelTypeAndKendraIdIn(String status, String channelType, List<String> kendraIds);
     long countByStageAndKendraIdIn(String stage, List<String> kendraIds);
+    long countByStageInAndKendraIdIn(List<String> stages, List<String> kendraIds);
+    long countByStageInAndBranchId(List<String> stages, String branchId);
+    long countByStageAndRecordTypeInAndKendraIdIn(String stage, List<String> recordTypes, List<String> kendraIds);
+    long countByStageAndRecordTypeInAndBranchId(String stage, List<String> recordTypes, String branchId);
+    long countByStageAndWfStageAndKendraIdIn(String stage, String wfStage, List<String> kendraIds);
+    long countByStageAndWfStageAndBranchId(String stage, String wfStage, String branchId);
     long countByRecordTypeAndKendraIdIn(String recordType, List<String> kendraIds);
-    long countByStatusAndUpdatedByAndUpdatedTsAfter(String status, String updatedBy, LocalDateTime startOfDay);
-    long countByStatusAndBranchIdIn(String status, List<String> branchIds);
+    long countByUpdatedByAndUpdatedTsAfter(@Param("updatedBy") String updatedBy, @Param("after") LocalDateTime after);
+    long countByStageIn(List<String> stages);
 
-
-    // New methods for fetching Draft list by wfStage
-    Page<TbObApplicationMaster> findByWfStageAndCreatedBy(String wfStage, String createdBy, Pageable pageable);
-    Page<TbObApplicationMaster> findByWfStageInAndCreatedBy(List<String> wfStages, String createdBy, Pageable pageable);
-    Page<TbObApplicationMaster> findByWfStageAndBranchId(String wfStage, String branchId, Pageable pageable);
-    Page<TbObApplicationMaster> findByWfStageInAndBranchId(List<String> wfStages, String branchId, Pageable pageable);
-
-    // New method for CRT Dashboard List
-    Page<TbObApplicationMaster> findByStatus(String status, Pageable pageable);
-
-
-    @Query("SELECT a FROM TbObApplicationMaster a WHERE (a.wfStage = 'DRAFT' OR a.status IN :otherStatuses) AND a.createdBy = :userId")
-    Page<TbObApplicationMaster> findDraftsByAllSubCategories(@Param("otherStatuses") List<String> otherStatuses, @Param("userId") String userId, Pageable pageable);
-
-    @Query("SELECT a FROM TbObApplicationMaster a WHERE (a.wfStage = 'DRAFT' OR a.status IN :otherStatuses) AND a.branchId = :branchId")
-    Page<TbObApplicationMaster> findDraftsByAllSubCategoriesForBm(@Param("otherStatuses") List<String> otherStatuses, @Param("branchId") String branchId, Pageable pageable);
-
-
-    Page<TbObApplicationMaster> findByStatusAndCreatedBy(String status, String createdBy, Pageable pageable);
-
-    Page<TbObApplicationMaster> findByStatusAndCreatedByAndCreatedTsBefore(String status, String createdBy, LocalDateTime beforeDate, Pageable pageable);
-
-    Page<TbObApplicationMaster> findByStatusInAndCreatedByAndCreatedTsBefore(List<String> statuses, String createdBy, LocalDateTime beforeDate, Pageable pageable);
-
-    Page<TbObApplicationMaster> findByStatusInAndCreatedBy(List<String> statuses, String createdBy, Pageable pageable);
+    /**
+     * Counts applications per case-ageing bucket in one pass. Age is the whole number of days
+     * between the application's last activity date (updated_ts, falling back to created_ts) and
+     * today, capped at 6 so everything older than 5 days collapses into a single "above 5" bucket.
+     * Returns [bucket, count] rows; buckets with no rows are absent.
+     */
+    @Query(value = "SELECT bucket, COUNT(*) FROM ("
+            + "  SELECT LEAST(CURRENT_DATE - CAST(COALESCE(a.updated_ts, a.created_ts) AS DATE), :aboveBucket) AS bucket"
+            + "  FROM tb_ob_application_master a"
+            + "  WHERE a.stage IN (:stages)"
+            + ") t GROUP BY bucket", nativeQuery = true)
+    List<Object[]> countCaseAgeingBucketsByStageIn(@Param("stages") List<String> stages,
+                                                   @Param("aboveBucket") int aboveBucket);
 
     Page<TbObApplicationMaster> findByStage(String stage, Pageable pageable);
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage IN :stages")
+    Page<TbObApplicationMaster> findByStageIn(@Param("stages") List<String> stages, Pageable pageable);
 
-    Page<TbObApplicationMaster> findByStatusAndChannelTypeAndCreatedBy(String status, String channelType, String createdBy, Pageable pageable);
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage IN :stages AND a.kendraId IN :kendraIds ORDER BY a.createdTs ASC")
+    Page<TbObApplicationMaster> findDraftsByAllSubCategories(@Param("stages") List<String> stages, @Param("kendraIds") List<String> kendraIds, Pageable pageable);
 
-    Page<TbObApplicationMaster> findByStageAndCreatedBy(String stage, String createdBy, Pageable pageable);
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage IN :stages AND a.branchId = :branchId ORDER BY a.createdTs ASC")
+    Page<TbObApplicationMaster> findDraftsByAllSubCategoriesForBm(@Param("stages") List<String> stages, @Param("branchId") String branchId, Pageable pageable);
 
-    Page<TbObApplicationMaster> findByRecordTypeAndCreatedBy(String recordType, String createdBy, Pageable pageable);
-
-    Page<TbObApplicationMaster> findByRecordTypeInAndCreatedBy(List<String> recordTypes, String createdBy, Pageable pageable);
-
-    Page<TbObApplicationMaster> findByStageAndRecordTypeAndCreatedBy(String stage, String recordType, String createdBy, Pageable pageable);
-
-    Page<TbObApplicationMaster> findByStageAndRecordTypeInAndCreatedBy(String stage, List<String> recordTypes, String createdBy, Pageable pageable);
-
-    Page<TbObApplicationMaster> findByStatusAndBranchId(String status, String branchId, Pageable pageable);
-    Page<TbObApplicationMaster> findByStatusInAndBranchId(List<String> statuses, String branchId, Pageable pageable);
     Page<TbObApplicationMaster> findByStageAndBranchId(String stage, String branchId, Pageable pageable);
-    Page<TbObApplicationMaster> findByRecordTypeAndBranchId(String recordType, String branchId, Pageable pageable);
-    Page<TbObApplicationMaster> findByRecordTypeInAndBranchId(List<String> recordTypes, String branchId, Pageable pageable);
     Page<TbObApplicationMaster> findByStageAndRecordTypeAndBranchId(String stage, String recordType, String branchId, Pageable pageable);
     Page<TbObApplicationMaster> findByStageAndRecordTypeInAndBranchId(String stage, List<String> recordTypes, String branchId, Pageable pageable);
-    Page<TbObApplicationMaster> findByStatusAndChannelTypeAndBranchId(String status, String channelType, String branchId, Pageable pageable);
-    @Query("SELECT app FROM TbObApplicationMaster app WHERE app.status IN :statuses AND app.branchId = :branchId AND app.updatedTs >= current_date")
-    Page<TbObApplicationMaster> findByStatusInAndBranchIdForCurrentDay(@Param("statuses") List<String> statuses, @Param("branchId") String branchId, Pageable pageable);
-
-    @Query("SELECT app FROM TbObApplicationMaster app WHERE app.status IN :statuses AND app.createdBy = :userId AND app.updatedTs >= current_date")
-    Page<TbObApplicationMaster> findByStatusInAndCreatedByForCurrentDay(@Param("statuses") List<String> statuses, @Param("userId") String userId, Pageable pageable);
-
-    Page<TbObApplicationMaster> findByStatusAndCreatedByAndLoanIdIsNull(String status, String createdBy, Pageable pageable);
-
-    Page<TbObApplicationMaster> findByStatusAndKendraIdIn(String status, List<String> kendraIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByStatusInAndKendraIdIn(List<String> statuses, List<String> kendraIds, Pageable pageable);
     Page<TbObApplicationMaster> findByStageAndKendraIdIn(String stage, List<String> kendraIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByStatusAndKendraIdInAndLoanIdIsNull(String status, List<String> kendraIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByStatusAndBranchIdAndLoanIdIsNull(String status, String branchId, Pageable pageable);
-    Page<TbObApplicationMaster> findByRecordTypeAndKendraIdIn(String recordType, List<String> kendraIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByRecordTypeInAndKendraIdIn(List<String> recordTypes, List<String> kendraIds, Pageable pageable);
     Page<TbObApplicationMaster> findByStageAndRecordTypeAndKendraIdIn(String stage, String recordType, List<String> kendraIds, Pageable pageable);
     Page<TbObApplicationMaster> findByStageAndRecordTypeInAndKendraIdIn(String stage, List<String> recordTypes, List<String> kendraIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByWfStageAndKendraIdIn(String wfStage, List<String> kendraIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByWfStageInAndKendraIdIn(List<String> wfStages, List<String> kendraIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByWfStageAndStatusAndKendraIdIn(String wfStage, String status, List<String> kendraIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByWfStageAndStatusInAndKendraIdIn(String wfStage, List<String> statuses, List<String> kendraIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByWfStageAndStatusAndBranchId(String wfStage, String status, String branchId, Pageable pageable);
-    Page<TbObApplicationMaster> findByWfStageAndStatusInAndBranchId(String wfStage, List<String> statuses, String branchId, Pageable pageable);
-    Page<TbObApplicationMaster> findByStatusAndBranchIdIn(String status, List<String> branchIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByStatusInAndBranchIdIn(List<String> statuses, List<String> branchIds, Pageable pageable);
-    Page<TbObApplicationMaster> findByStatusAndBranchIdInAndCreatedTsBefore(String status, List<String> branchIds, LocalDateTime beforeDate, Pageable pageable);
-    Page<TbObApplicationMaster> findByStatusInAndBranchIdInAndCreatedTsBefore(List<String> statuses, List<String> branchIds, LocalDateTime beforeDate, Pageable pageable);
-    Page<TbObApplicationMaster> findByStatusAndChannelTypeAndBranchIdIn(String status, String channelType, List<String> branchIds, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage = :stage AND a.wfStage = :wfStage AND a.kendraId IN :kendraIds")
+    Page<TbObApplicationMaster> findByStageAndWfStageAndKendraIdIn(@Param("stage") String stage, @Param("wfStage") String wfStage, @Param("kendraIds") List<String> kendraIds, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage = :stage AND a.wfStage = :wfStage AND a.branchId = :branchId")
+    Page<TbObApplicationMaster> findByStageAndWfStageAndBranchId(@Param("stage") String stage, @Param("wfStage") String wfStage, @Param("branchId") String branchId, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage IN :stages AND a.kendraId IN :kendraIds")
+    Page<TbObApplicationMaster> findCbFailByStageInAndKendraIdIn(@Param("stages") List<String> stages, @Param("kendraIds") List<String> kendraIds, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage IN :stages AND a.branchId = :branchId")
+    Page<TbObApplicationMaster> findCbFailByStageInAndBranchId(@Param("stages") List<String> stages, @Param("branchId") String branchId, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE (a.stage = 'BMQUEUE' OR a.status = 'BMQUEUE') AND a.recordType = :recordType AND a.kendraId IN :kendraIds")
+    Page<TbObApplicationMaster> findReinterviewByRecordTypeAndKendraIdIn(@Param("recordType") String recordType, @Param("kendraIds") List<String> kendraIds, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE (a.stage = 'BMQUEUE' OR a.status = 'BMQUEUE') AND a.recordType IN :recordTypes AND a.kendraId IN :kendraIds")
+    Page<TbObApplicationMaster> findReinterviewByRecordTypeInAndKendraIdIn(@Param("recordTypes") List<String> recordTypes, @Param("kendraIds") List<String> kendraIds, Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE (a.stage = 'BMQUEUE' OR a.status = 'BMQUEUE') AND a.recordType IN :recordTypes AND a.kendraId IN :kendraIds")
+    long countReinterviewByRecordTypeInAndKendraIdIn(@Param("recordTypes") List<String> recordTypes, @Param("kendraIds") List<String> kendraIds);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE (a.status = 'GRT' OR a.stage = 'GRT') AND a.kendraId IN :kendraIds")
+    Page<TbObApplicationMaster> findPendingForGrtByKendraIdIn(@Param("kendraIds") List<String> kendraIds, Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE (a.status = 'GRT' OR a.stage = 'GRT') AND a.kendraId IN :kendraIds")
+    long countPendingForGrtByKendraIdIn(@Param("kendraIds") List<String> kendraIds);
+
+   @Query("SELECT a FROM TbObApplicationMaster a WHERE (a.status = 'GRTAPPROVED' OR a.stage = 'GRTAPPROVED') AND a.kendraId IN :kendraIds")
+    Page<TbObApplicationMaster> findPendingForActivationByKendraIdIn(@Param("kendraIds") List<String> kendraIds, Pageable pageable);
+
+     @Query("SELECT a FROM TbObApplicationMaster a WHERE a.kendraId IN :kendraIds AND a.wfStage = 'T24_ACTIVATED'")
+    Page<TbObApplicationMaster> findActivatedByKendraIdIn(@Param("kendraIds") List<String> kendraIds, Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.kendraId IN :kendraIds AND a.wfStage = 'T24_ACTIVATED'")
+    long countActivatedByKendraIdIn(@Param("kendraIds") List<String> kendraIds);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.kendraId IN :kendraIds AND (a.status = 'REJECTED' OR a.stage IN :rejectStages)")
+    Page<TbObApplicationMaster> findRejectedByKendraIdIn(@Param("kendraIds") List<String> kendraIds, @Param("rejectStages") List<String> rejectStages, Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.kendraId IN :kendraIds AND (a.status = 'REJECTED' OR a.stage IN :rejectStages)")
+    long countRejectedByKendraIdIn(@Param("kendraIds") List<String> kendraIds, @Param("rejectStages") List<String> rejectStages);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.kendraId IN :kendraIds AND (a.wfStage = 'T24_ACTIVATED' OR a.status = 'REJECTED' OR a.stage IN :rejectStages)")
+    Page<TbObApplicationMaster> findActivatedOrRejectedByKendraIdIn(@Param("kendraIds") List<String> kendraIds, @Param("rejectStages") List<String> rejectStages, Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.stage = :stage AND a.wfStage = :wfStage AND a.branchId IN :branchIds")
+    long countByStageAndWfStageAndBranchIdIn(@Param("stage") String stage, @Param("wfStage") String wfStage, @Param("branchIds") List<String> branchIds);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage = :stage AND a.wfStage = :wfStage AND a.branchId IN :branchIds")
+    Page<TbObApplicationMaster> findByStageAndWfStageAndBranchIdIn(@Param("stage") String stage, @Param("wfStage") String wfStage, @Param("branchIds") List<String> branchIds, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage = :stage AND a.wfStage = :wfStage AND a.branchId IN :branchIds AND a.createdTs < :beforeDate")
+    Page<TbObApplicationMaster> findByStageAndWfStageAndBranchIdInAndCreatedTsBefore(@Param("stage") String stage, @Param("wfStage") String wfStage, @Param("branchIds") List<String> branchIds, @Param("beforeDate") LocalDateTime beforeDate, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.branchId IN :branchIds AND ((a.stage = :pendingStage AND a.wfStage = :pendingWfStage) OR (a.stage = 'ONHOLD' AND a.wfStage = 'RPCONHOLD'))")
+    Page<TbObApplicationMaster> findRpcPoolAllByBranchIdIn(@Param("pendingStage") String pendingStage, @Param("pendingWfStage") String pendingWfStage, @Param("branchIds") List<String> branchIds, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.branchId IN :branchIds AND ((a.stage = :pendingStage AND a.wfStage = :pendingWfStage AND a.createdTs < :beforeDate) OR (a.stage = 'ONHOLD' AND a.wfStage = 'RPCONHOLD' AND a.createdTs < :beforeDate))")
+    Page<TbObApplicationMaster> findRpcPoolAllByBranchIdInAndCreatedTsBefore(@Param("pendingStage") String pendingStage, @Param("pendingWfStage") String pendingWfStage, @Param("branchIds") List<String> branchIds, @Param("beforeDate") LocalDateTime beforeDate, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.updatedBy = :updatedBy AND a.updatedTs >= :after")
+    Page<TbObApplicationMaster> findByUpdatedByAndUpdatedTsAfter(@Param("updatedBy") String updatedBy, @Param("after") LocalDateTime after, Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.stage = :stage AND a.branchId IN :branchIds")
+    long countByStageAndBranchIdIn(@Param("stage") String stage, @Param("branchIds") List<String> branchIds);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage = :stage AND a.branchId IN :branchIds")
+    Page<TbObApplicationMaster> findByStageAndBranchIdIn(@Param("stage") String stage, @Param("branchIds") List<String> branchIds, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage = :stage AND a.branchId IN :branchIds AND a.createdTs < :beforeDate")
+    Page<TbObApplicationMaster> findByStageAndBranchIdInAndCreatedTsBefore(@Param("stage") String stage, @Param("branchIds") List<String> branchIds, @Param("beforeDate") LocalDateTime beforeDate, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage IN :stages AND a.branchId IN :branchIds")
+    Page<TbObApplicationMaster> findByStageInAndBranchIdIn(@Param("stages") List<String> stages, @Param("branchIds") List<String> branchIds, Pageable pageable);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.stage IN :stages AND a.branchId IN :branchIds AND a.createdTs < :beforeDate")
+    Page<TbObApplicationMaster> findByStageInAndBranchIdInAndCreatedTsBefore(@Param("stages") List<String> stages, @Param("branchIds") List<String> branchIds, @Param("beforeDate") LocalDateTime beforeDate, Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.stage IN :stages AND a.branchId IN :branchIds")
+    long countByStageInAndBranchIdIn(@Param("stages") List<String> stages, @Param("branchIds") List<String> branchIds);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.channelType = :channelType AND a.branchId IN :branchIds AND a.createdTs >= :since")
+    long countByChannelTypeAndBranchIdInAndCreatedTsAfter(@Param("channelType") String channelType, @Param("branchIds") List<String> branchIds, @Param("since") LocalDateTime since);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.channelType = :channelType AND a.branchId IN :branchIds AND a.createdTs >= :since")
+    Page<TbObApplicationMaster> findByChannelTypeAndBranchIdInAndCreatedTsAfter(@Param("channelType") String channelType, @Param("branchIds") List<String> branchIds, @Param("since") LocalDateTime since, Pageable pageable);
 
 
-    @Query("SELECT new com.iexceed.appzillonbanking.cagl.cob.payload.DashboardCountDTO(a.status, a.stage, a.recordType, a.channelType, a.createdBy, a.wfStage, count(a.id)) " +
-            "FROM TbObApplicationMaster a " +
-            "WHERE a.createdBy = :userId " +
-            "GROUP BY a.status, a.stage, a.recordType, a.channelType, a.createdBy, a.wfStage")
-    List<DashboardCountDTO> getCountsByKmIdGrouped(@Param("userId") String userId);
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.updatedBy = :updatedBy AND a.updatedTs >= :after AND a.createdTs < :beforeDate")
+    Page<TbObApplicationMaster> findByUpdatedByAndUpdatedTsAfterAndCreatedTsBefore(@Param("updatedBy") String updatedBy, @Param("after") LocalDateTime after, @Param("beforeDate") LocalDateTime beforeDate, Pageable pageable);
 
-    @Query("SELECT new com.iexceed.appzillonbanking.cagl.cob.payload.DashboardCountDTO(a.status, a.stage, a.recordType, a.channelType, a.createdBy, a.wfStage, count(a.id)) " +
-            "FROM TbObApplicationMaster a " +
-            "WHERE a.branchId = :branchId " +
-            "GROUP BY a.status, a.stage, a.recordType, a.channelType, a.createdBy, a.wfStage")
-    List<DashboardCountDTO> getCountsByBranchIdGrouped(@Param("branchId") String branchId);
 
-    @Query("SELECT new com.iexceed.appzillonbanking.cagl.cob.payload.DashboardCountDTO(a.status, a.stage, a.recordType, a.channelType, a.createdBy, count(a.id)) " +
-            "FROM TbObApplicationMaster a " +
-            "WHERE a.wfStage = :wfStage " +
-            "GROUP BY a.status, a.stage, a.recordType, a.channelType, a.createdBy")
-    List<DashboardCountDTO> getCountsByWfStageGrouped(@Param("wfStage") String wfStage);
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE (a.status = 'GRT' OR a.stage = 'GRT') AND a.branchId = :branchId")
+    Page<TbObApplicationMaster> findPendingForGrtByBranchId(@Param("branchId") String branchId, Pageable pageable);
 
-    @Query("SELECT new com.iexceed.appzillonbanking.cagl.cob.payload.DashboardCountDTO(a.status, a.stage, a.recordType, a.channelType, a.createdBy, count(a.id)) " +
-            "FROM TbObApplicationMaster a " +
-            "WHERE a.updatedBy = :userId AND a.updatedTs >= current_date " +
-            "GROUP BY a.status, a.stage, a.recordType, a.channelType, a.createdBy")
-    List<DashboardCountDTO> getClearedCountsForCurrentUser(@Param("userId") String userId);
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE (a.status = 'GRT' OR a.stage = 'GRT') AND a.branchId = :branchId")
+    long countPendingForGrtByBranchId(@Param("branchId") String branchId);
 
-    Page<TbObApplicationMaster> findByStatusAndUpdatedByAndUpdatedTsAfter(String status, String updatedBy, LocalDateTime startOfDay, Pageable pageable);
 
-    Page<TbObApplicationMaster> findAll(Specification<TbObApplicationMaster> spec, Pageable pageable);
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE (a.status = 'GRTAPPROVED' OR a.stage = 'GRTAPPROVED') AND a.branchId = :branchId")
+    Page<TbObApplicationMaster> findPendingForActivationByBranchId(@Param("branchId") String branchId, Pageable pageable);
 
-    Page<TbObApplicationMaster>findByGroupIdIn(List<String> groupIds, Pageable pageable);
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE (a.status = 'GRTAPPROVED' OR a.stage = 'GRTAPPROVED') AND a.branchId = :branchId")
+    long countPendingForActivationByBranchId(@Param("branchId") String branchId);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.branchId = :branchId AND a.wfStage = 'T24_ACTIVATED'")
+    Page<TbObApplicationMaster> findActivatedByBranchId(@Param("branchId") String branchId, Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.branchId = :branchId AND a.wfStage = 'T24_ACTIVATED'")
+    long countActivatedByBranchId(@Param("branchId") String branchId);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.branchId = :branchId AND (a.status = 'REJECTED' OR a.stage IN :rejectStages)")
+    Page<TbObApplicationMaster> findRejectedByBranchId(@Param("branchId") String branchId, @Param("rejectStages") List<String> rejectStages, Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.branchId = :branchId AND (a.status = 'REJECTED' OR a.stage IN :rejectStages)")
+    long countRejectedByBranchId(@Param("branchId") String branchId, @Param("rejectStages") List<String> rejectStages);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.branchId = :branchId AND (a.wfStage = 'T24_ACTIVATED' OR a.status = 'REJECTED' OR a.stage IN :rejectStages)")
+    Page<TbObApplicationMaster> findActivatedOrRejectedByBranchId(@Param("branchId") String branchId, @Param("rejectStages") List<String> rejectStages, Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.branchId = :branchId AND (a.wfStage = 'T24_ACTIVATED' OR a.status = 'REJECTED' OR a.stage IN :rejectStages)")
+    long countActivatedOrRejectedByBranchId(@Param("branchId") String branchId, @Param("rejectStages") List<String> rejectStages);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.stage = :stage AND a.recordType IN :recordTypes AND a.branchId IN :branchIds")
+    long countByStageAndRecordTypeInAndBranchIdIn(@Param("stage") String stage, @Param("recordTypes") List<String> recordTypes, @Param("branchIds") List<String> branchIds);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE (a.status = 'GRT' OR a.stage = 'GRT') AND a.branchId IN :branchIds")
+    long countPendingForGrtByBranchIdIn(@Param("branchIds") List<String> branchIds);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE (a.status = 'GRTAPPROVED' OR a.stage = 'GRTAPPROVED') AND a.branchId IN :branchIds")
+    long countPendingForActivationByBranchIdIn(@Param("branchIds") List<String> branchIds);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.branchId IN :branchIds AND (a.wfStage = 'T24_ACTIVATED' OR a.status = 'REJECTED' OR a.stage IN :rejectStages)")
+    long countActivatedOrRejectedByBranchIdIn(@Param("branchIds") List<String> branchIds, @Param("rejectStages") List<String> rejectStages);
+
+    @Query("SELECT a FROM TbObApplicationMaster a WHERE a.status = 'GRTAPPROVED' OR a.stage = 'GRTAPPROVED'")
+    Page<TbObApplicationMaster> findPendingForActivation(Pageable pageable);
+
+    @Query("SELECT COUNT(a) FROM TbObApplicationMaster a WHERE a.status = 'GRTAPPROVED' OR a.stage = 'GRTAPPROVED'")
+    long countPendingForActivation();
 
 }

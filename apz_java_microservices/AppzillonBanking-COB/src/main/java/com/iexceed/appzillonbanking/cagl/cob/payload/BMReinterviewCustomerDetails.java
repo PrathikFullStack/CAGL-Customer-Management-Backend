@@ -18,6 +18,9 @@ public class BMReinterviewCustomerDetails {
     @JsonProperty("kycDetails")
     private BMReinterviewKycDetails kycDetails;
 
+    @JsonProperty("docVerified")
+    private Boolean docVerified;
+
     @JsonProperty("documentVerification")
     private List<BMReinterviewDocumentVerificationRequestFields> documentVerification;
 

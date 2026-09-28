@@ -28,7 +28,7 @@ public class TbObLoan {
 //    )
     @Column(name = "loan_seq_id")
     @JsonProperty("loanSeqId")
-    private Long loanSeqId;
+    private String loanSeqId;
 
     @Column(name = "application_id")
     @JsonProperty("applicationId")

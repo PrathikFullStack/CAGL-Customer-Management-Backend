@@ -75,6 +75,11 @@ public class TbObCustomer {
     @JdbcTypeCode(SqlTypes.JSON)
     private Map<String, Object> kycDetails;
 
+//    @Column(name = "location_details", columnDefinition = "jsonb")
+//    @JsonProperty("locationDetails")
+//    @JdbcTypeCode(SqlTypes.JSON)
+//    private Map<String, Object> locationDetails;
+
     @Column(name = "bank_details", columnDefinition = "jsonb")
     @JsonProperty("bankDetails")
     @JdbcTypeCode(SqlTypes.JSON)
@@ -89,17 +94,45 @@ public class TbObCustomer {
     @JsonProperty("photoDocId")
     private String photoDocId;
 
-//    @Column(name = "mobile_number")
-//    @JsonProperty("mobileNumber")
-//    private String mobileNumber;
+    @Column(name = "attendance", columnDefinition = "TEXT")
+    @JsonProperty("attendance")
+    private String attendance;
 
-//    @Column(name = "aml_status")
-//    @JsonProperty("amlStatus")
-//    private String amlStatus;
+    @Column(name = "location_details", columnDefinition = "TEXT")
+    @JsonProperty("locationDetails")
+    private String locationDetails;
 
-//    @Column(name = "bre_status")
-//    @JsonProperty("breStatus")
-//    private String breStatus;
+    @Column(name = "incomedet", columnDefinition = "TEXT")
+    @JsonProperty("incomedet")
+    private String incomedet;
+
+    @Column(name = "questionnaire", columnDefinition = "TEXT")
+    @JsonProperty("questionnaire")
+    private String questionnaire;
+
+    @Column(name = "peradddet", columnDefinition = "TEXT")
+    @JsonProperty("peradddet")
+    private String peradddet;
+
+    @Column(name = "learning_session", columnDefinition = "TEXT")
+    @JsonProperty("learningSession")
+    private String learningSession;
+
+    @Column(name = "cgt_info", columnDefinition = "TEXT")
+    @JsonProperty("cgtInfo")
+    private String cgtInfo;
+
+    @Column(name = "grt_info", columnDefinition = "TEXT")
+    @JsonProperty("grtInfo")
+    private String grtInfo;
+
+    @Column(name = "cgt_status")
+    @JsonProperty("cgtStatus")
+    private String cgtStatus;
+
+    @Column(name = "grt_status")
+    @JsonProperty("grtStatus")
+    private String grtStatus;
 
 //    @Column(name = "channel_type")
 //    @JsonProperty("channelType")

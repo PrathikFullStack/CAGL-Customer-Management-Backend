@@ -194,7 +194,7 @@ public class TbObGRT {
     @JsonProperty("status")
     private String status;
 
-    @Column(name = "sub_stage")
+    @Column(name = "sub_stage") // --->> text todo
     @JsonProperty("subStage")
     private String subStage;
 

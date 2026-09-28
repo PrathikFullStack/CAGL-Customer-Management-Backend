@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import org.springframework.data.domain.Page;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Data
 @NoArgsConstructor
@@ -18,6 +19,8 @@ public class DashboardListResponseObj {
     private List<?> appList;
     @JsonProperty("pageNo")
     private int pageNo;
+    @JsonProperty("totalPendingMbdfs")
+    private long totalPendingMbdfs;
     @JsonProperty("pageSize")
     private int pageSize;
     @JsonProperty("totalElements")
@@ -26,6 +29,8 @@ public class DashboardListResponseObj {
     private int totalPages;
     @JsonProperty("appCountList")
     private List<TileCount> appCountList;
+    @JsonProperty("caseAgeingList")
+    private List<CaseAgeingCount> caseAgeingList;
 
     public DashboardListResponseObj(Page<?> page, List<TileCount> tiles) {
         this.appList = page.getContent();
@@ -33,6 +38,13 @@ public class DashboardListResponseObj {
         this.pageSize = page.getSize();
         this.totalElements = page.getTotalElements();
         this.totalPages = page.getTotalPages();
-        this.appCountList = tiles;
+        this.totalPendingMbdfs = tiles == null ? 0L : tiles.stream()
+                .filter(tile -> "Total Pending MBDFs".equals(tile.getTileName()))
+                .findFirst()
+                .map(TileCount::getCount)
+                .orElse(0L);
+        this.appCountList = tiles == null ? null : tiles.stream()
+                .filter(tile -> !"Total Pending MBDFs".equals(tile.getTileName()))
+                .collect(Collectors.toList());
     }
 }

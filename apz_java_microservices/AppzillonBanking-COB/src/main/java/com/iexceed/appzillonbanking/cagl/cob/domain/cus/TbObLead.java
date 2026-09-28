@@ -45,6 +45,10 @@ public class TbObLead {
     @Column(name = "branch_id", length = 20, nullable = false)
     private String branchId;
 
+    @JsonProperty("kendraId")
+    @Column(name = "kendra_id", length = 20)
+    private String kendraId;
+
     @JsonProperty("kmId")
     @Column(name = "km_id", length = 20, nullable = false)
     private String kmId;

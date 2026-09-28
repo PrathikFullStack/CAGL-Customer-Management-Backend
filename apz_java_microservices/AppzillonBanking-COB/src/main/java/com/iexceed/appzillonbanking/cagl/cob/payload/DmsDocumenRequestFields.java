@@ -14,31 +14,16 @@ public class DmsDocumenRequestFields {
 
 	@JsonProperty("documentName")
 	private String documentName;
-	
+
 	@JsonProperty("fileType")
 	private String fileType;
-	
+
 	@JsonProperty("fileData")
 	private String fileData;
 
-	@JsonProperty("type")
-	private String Type;
-	
 	@JsonProperty("subType")
 	private String subType;
-	
-	@JsonProperty("isExisting")
-	private boolean isExisting;
-
-	@JsonProperty("id")
-	private String id;
-	
-	@JsonProperty("operationType")
-	private String operationType;
 
 	@JsonProperty("docIndex")
 	private String docIndex;
-	
-	@JsonProperty("applicationId")
-	private String applicationId;
 }

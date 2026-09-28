@@ -12,6 +12,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class BMReinterviewLocationDetails {
 
+    @JsonProperty("userRole")
+    private String userRole;
+
     @JsonProperty("lat")
     private String lat;
 

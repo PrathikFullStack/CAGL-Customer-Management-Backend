@@ -52,6 +52,9 @@ public class ApplicationUpdateDtls {
     @JsonProperty("addInfo")
     private Map<String, Object> addInfo;
 
+    @JsonProperty("modifiedDetails")
+    private Map<String, Object> modifiedDetails;
+
     @Valid
     @JsonProperty("customerDtls")
     private CustomerUpdateDtls customerDtls;

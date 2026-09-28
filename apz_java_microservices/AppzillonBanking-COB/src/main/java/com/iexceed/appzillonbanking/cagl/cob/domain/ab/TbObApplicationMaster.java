@@ -56,6 +56,10 @@ public class TbObApplicationMaster {
     @JsonProperty("branchId")
     private String branchId;
 
+    @Column(name = "branch_name")
+    @JsonProperty("branchName")
+    private String branchName;
+
     @Column(name = "km_name")
     @JsonProperty("kmName")
     private String kmName;
@@ -92,9 +96,17 @@ public class TbObApplicationMaster {
     @JsonProperty("sourceStage")
     private String sourceStage;
 
+    @Column(name = "dms_delete_flag")
+    @JsonProperty("dmsDeleteFlag")
+    private String dmsDeleteFlag;
+
     @Column(name = "dmsfolderidx")
     @JsonProperty("dmsFolderIdx")
     private String dmsFolderIdx;
+
+    @Column(name = "dms_upload_flag")
+    @JsonProperty("dmsUploadFlag")
+    private String dmsUploadFlag;
 
     @Column(name = "loan_eligible")
     @JsonProperty("loanEligible")
@@ -153,6 +165,11 @@ public class TbObApplicationMaster {
     @JsonProperty("addInfo2")
 //    private Map<String, Object> addInfo2;
     private String addInfo2;
+
+    @Column(name = "photo_dedupe_status")
+    @JsonProperty("photoDedupeStatus")
+    @Builder.Default
+    private String photoDedupeStatus="PENDING";
 
     /**
      * Advances the workflow only if the requested sub-stage is ahead

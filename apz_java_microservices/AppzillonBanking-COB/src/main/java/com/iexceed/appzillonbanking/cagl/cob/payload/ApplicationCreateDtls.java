@@ -30,6 +30,10 @@ public class ApplicationCreateDtls {
     @JsonProperty("branch_id")
     private String branchId;
 
+    @NotBlank(message = "branch_name is required")
+    @JsonProperty("branch_name")
+    private String branchName;
+
     @NotBlank(message = "km_name is required")
     @JsonProperty("km_name")
     private String kmName;

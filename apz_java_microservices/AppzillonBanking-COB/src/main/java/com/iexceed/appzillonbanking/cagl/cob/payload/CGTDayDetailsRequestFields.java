@@ -33,11 +33,14 @@ public class CGTDayDetailsRequestFields {
     private String annexureId;
 
     @JsonProperty("memberDetails")
-    private List<CGTMemberDetailsRequestFields> memberDetails;
+    private List<CGTMemberAttendanceDetailsRequestFields> memberAttendanceDetails;
 
     @JsonProperty("learningSession")
     private List<String> learningSession;
 
     @JsonProperty("loanDetailsCapture")
     private Boolean loanDetailsCapture;
+
+    @JsonProperty("memberLoanDetails")
+    private List<CGTMemberLoanDetailsFields> memberLoanDetails;
 }

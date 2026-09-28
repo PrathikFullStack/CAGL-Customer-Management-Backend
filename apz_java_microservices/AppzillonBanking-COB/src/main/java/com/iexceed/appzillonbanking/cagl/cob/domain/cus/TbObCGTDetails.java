@@ -56,7 +56,7 @@ public class TbObCGTDetails {
     private String status;
 
     @JsonProperty("subStage")
-    @Column(name = "sub_stage")
+    @Column(name = "sub_stage", columnDefinition = "TEXT")
     private String subStage;
 
     @JsonProperty("endCgtTs")

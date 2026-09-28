@@ -1,10 +1,7 @@
 package com.iexceed.appzillonbanking.cagl.cob.rest;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.iexceed.appzillonbanking.cagl.cob.payload.CreateGroupRequest;
-import com.iexceed.appzillonbanking.cagl.cob.payload.CreateGroupRequestWrapper;
-import com.iexceed.appzillonbanking.cagl.cob.payload.CreateKendraRequest;
-import com.iexceed.appzillonbanking.cagl.cob.payload.CreateKendraRequestWrapper;
+import com.iexceed.appzillonbanking.cagl.cob.payload.*;
 import com.iexceed.appzillonbanking.cagl.cob.service.KendraGroupService;
 import com.iexceed.appzillonbanking.core.payload.Header;
 import com.iexceed.appzillonbanking.core.payload.Response;
@@ -61,6 +58,11 @@ public class KendraGroupController {
         return new ResponseEntity<>(responseWrapper, HttpStatus.OK);
     }
 
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "AppzillonBanking API reachable"),
+            @ApiResponse(responseCode = "408", description = "Service Timed Out"),
+            @ApiResponse(responseCode = "500", description = "Internal Server Error"),
+            @ApiResponse(responseCode = "404", description = "AppzillonBanking not reachable")})
     @Operation(summary = "Create Group", description = "API for creating Group under a Kendra")
     @PostMapping(value = "/group/create", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
@@ -78,5 +80,18 @@ public class KendraGroupController {
         return new ResponseEntity<>(responseWrapper, HttpStatus.OK);
     }
 
-
+    @Operation(summary = "Fetch Group Member Count", description = "API for fetching group member count")
+    @PostMapping(value = "/group/memberCount", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ResponseWrapper> fetchGroupMemberCount(@RequestBody FetchGroupMemberCountRequestWrapper requestWrapper,
+                                                           @RequestHeader String appId, @RequestHeader String interfaceId, @RequestHeader String userId, @RequestHeader String masterTxnRefNo,
+                                                           @RequestHeader String deviceId) throws JsonProcessingException {
+        logger.info("Start : fetchGroupCount :: {}", requestWrapper);
+        ResponseWrapper responseWrapper = new ResponseWrapper();
+        Header header = CommonUtils.obtainHeader(appId, interfaceId, userId, masterTxnRefNo, deviceId);
+        FetchGroupMemberCountRequest request = requestWrapper.apiRequest();
+        Response response = kendraGroupService.fetchGroupMemberCount(request, header);
+        responseWrapper.setApiResponse(response);
+        logger.info("End : fetchGroupCount :: {}", response);
+        return new ResponseEntity<>(responseWrapper, HttpStatus.OK);
+    }
 }

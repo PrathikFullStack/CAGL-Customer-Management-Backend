@@ -42,11 +42,10 @@ import org.springframework.web.client.RestTemplate;
         entityManagerFactoryRef = "abEntityManagerFactory",
         transactionManagerRef = "abTransactionManager",
         basePackages = {
-                "com.iexceed.appzillonbanking.cagl.repository.ab",
+                "com.iexceed.appzillonbanking.cagl.cob.repository.ab",
+                "com.iexceed.appzillonbanking.cagl.cob.repository.cus",
                 "com.iexceed.appzillonbanking.cagl.*.repository.ab",
-                "com.iexceed.appzillonbanking.*.repository.ab",
-                "com.iexceed.appzillonbanking.cagl.repository.cus",
-                "com.iexceed.appzillonbanking.cagl.*.repository",
+                "com.iexceed.appzillonbanking.core.repository.ab"
         }
 )
 public class AbDataConfiguration {

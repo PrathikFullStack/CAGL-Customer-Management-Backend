@@ -1,6 +1,6 @@
 package com.iexceed.appzillonbanking.cagl.cob.payload;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -8,20 +8,22 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    @JsonInclude(JsonInclude.Include.NON_NULL)
     public class AuditTrailRecord {
         @JsonProperty("auditSource")
         private String auditSource; // "APPLICATION" or "USER"
-
         @JsonProperty("eventType")
         private String eventType;
+        @JsonProperty("id")
+        private String id;
 
         @JsonProperty("eventTimestamp")
+        @JsonFormat(pattern = "dd-MM-yyyy HH:mm:ss.SSS")
         private LocalDateTime eventTimestamp;
 
         @JsonProperty("userId")
@@ -35,5 +37,13 @@ import java.time.LocalDateTime;
 
         @JsonProperty("details")
         private String details;
-    }
 
+        @JsonProperty("editedDetails")
+        private Map<String, Object> editedDetails;
+
+        @JsonProperty("payload")
+        private Map<String, Object> payload;
+
+        @JsonProperty("isEdited")
+        private Boolean isEdited;
+    }

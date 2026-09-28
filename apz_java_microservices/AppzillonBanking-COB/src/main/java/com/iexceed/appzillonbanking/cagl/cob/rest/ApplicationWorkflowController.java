@@ -54,7 +54,13 @@ public class ApplicationWorkflowController {
 		Header header = CommonUtils.obtainHeader(appId, interfaceId, userId, masterTxnRefNo, deviceId);
 		logger.debug("Header :: {}", header);
 		ResponseWrapper responseWrapper = new ResponseWrapper();
-		Response response = applicationWorkflowService.updateStage(request.getApiRequest(), header);
+		Response response;
+		try {
+			response = applicationWorkflowService.updateStage(request.getApiRequest(), header);
+		} catch (RuntimeException e) {
+			logger.error("updateWorkflow rolled back: {}", e.getMessage());
+			response = applicationWorkflowService.buildErrorResponse(e.getMessage());
+		}
 		responseWrapper.setApiResponse(response);
 		logger.info("End : populateWorkflow :: {}", response);
 		return new ResponseEntity<>(responseWrapper, HttpStatus.OK);
@@ -80,7 +86,9 @@ public class ApplicationWorkflowController {
 			response = applicationWorkflowService.saveExcelData(requestWrapper.getApiRequest(),header);
 			logger.debug("Final response :: {}", response);
 		} catch (Exception e) {
-			logger.error("Error Occured in SaveExcelData:{}", e);
+			logger.error("Error Occurred in SaveExcelData: {}", e.getMessage());
+			response = applicationWorkflowService.buildErrorResponse(
+					"Issue occurred while processing. Please try again.");
 		}
 		responseWrapper.setApiResponse(response);
 		logger.debug("End : SaveExcelData response :: {}", response);

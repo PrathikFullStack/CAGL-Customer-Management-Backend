@@ -56,7 +56,7 @@ public class GRTController {
         Header header = CommonUtils.obtainHeader(appId, interfaceId, userId, masterTxnRefNo, deviceId);
         logger.debug("Header :: {}", header);
         GRTSubmitRequest request = requestWrapper.getApiRequest();
-        Mono<Response> responseMono = grtService.submitBMReInterview(request, header);
+        Mono<Response> responseMono = grtService.submitGRT(request, header);
         return responseMono.map(response -> {
             ResponseWrapper responseWrapper = new ResponseWrapper();
             responseWrapper.setApiResponse(response);

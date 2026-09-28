@@ -2,10 +2,10 @@ package com.iexceed.appzillonbanking.cagl.service;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.iexceed.appzillonbanking.cagl.constants.CommonConstants;
 import com.iexceed.appzillonbanking.cagl.entity.GkUnifiedLeadData;
-import com.iexceed.appzillonbanking.cagl.payload.CreateLeadRequest;
-import com.iexceed.appzillonbanking.cagl.payload.CreateLeadRequestFields;
-import com.iexceed.appzillonbanking.cagl.payload.LeadReferenceResponse;
+import com.iexceed.appzillonbanking.cagl.enums.UserRoles;
+import com.iexceed.appzillonbanking.cagl.payload.*;
 import com.iexceed.appzillonbanking.cagl.repository.cus.GkUnifiedLeadRepository;
 import com.iexceed.appzillonbanking.core.payload.Header;
 import com.iexceed.appzillonbanking.core.payload.Response;
@@ -110,6 +110,35 @@ public class OnboardingService {
     private void addIfPresent(Map<String, Object> addInfo, String key, String value) {
         if (StringUtils.isNotBlank(value)) {
             addInfo.put(key, value.trim());
+        }
+    }
+
+    public Response fetchLeadCount(FetchLeadCountRequestWrappper requestWrapper, Header header) {
+        logger.info("Inside fetchLeadCount");
+        Response response = new Response();
+        ResponseHeader responseHeader = new ResponseHeader();
+        ResponseBody responseBody = new ResponseBody();
+        long leadCount = 0L;
+        FetchLeadCountRequest request = requestWrapper.apiRequest();
+        FetchLeadCountRequestFields requestObj = request.getRequestObj();
+        try {
+            if(requestObj.getUserRole().equalsIgnoreCase(UserRoles.KM.name())) {
+                leadCount = gkUnifiedLeadRepository.countByKendraIdIn(requestObj.getKendraIds());
+            } else if(requestObj.getUserRole().equalsIgnoreCase(UserRoles.BM.name())) {
+                leadCount = gkUnifiedLeadRepository.countByBranchId(requestObj.getBranchId());
+            }
+            FetchLeadCountResponse fetchLeadCountResponse = new FetchLeadCountResponse(leadCount);
+            responseHeader.setResponseMessage(CommonConstants.RESP_SUCCESS_STATUS);
+            responseHeader.setResponseCode(CommonConstants.SUCCESS);
+            responseBody.setResponseObj(objectMapper.writeValueAsString(fetchLeadCountResponse));
+            return Response.builder().responseBody(responseBody).responseHeader(responseHeader).build();
+        } catch (Exception ex) {
+            logger.error("Exception while fetching lead count", ex);
+            CommonUtils.generateHeaderForFailure(responseHeader, "Unable to fetch lead");
+            responseBody.setResponseObj("Fetch Lead count failed.");
+            response.setResponseBody(responseBody);
+            response.setResponseHeader(responseHeader);
+            return response;
         }
     }
 }

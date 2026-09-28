@@ -6,13 +6,12 @@ import com.iexceed.appzillonbanking.cagl.cob.constants.AuditConstants;
 import com.iexceed.appzillonbanking.cagl.cob.domain.ab.TbObApplicationMaster;
 import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObCustAuditTrail;
 import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObCustomer;
+import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObLead;
 import com.iexceed.appzillonbanking.cagl.cob.domain.cus.TbObUserAuditTrail;
 import com.iexceed.appzillonbanking.cagl.cob.payload.AuditTrailRecord;
 import com.iexceed.appzillonbanking.cagl.cob.payload.DashboardListRequestFields;
-import com.iexceed.appzillonbanking.cagl.cob.payload.GlobalSearchRequestFields;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObUserAuditTrailRepository;
 import com.iexceed.appzillonbanking.cagl.cob.repository.cus.CustAuditTrailRepository;
-import com.iexceed.appzillonbanking.core.payload.Header;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,7 +20,6 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -73,123 +71,16 @@ public class AuditService {
     }
 
     /**
-     * Generic Application Audit
+     * Maps a dashboard search request's searchType (global / local / filter) to its audit event type.
      */
-    public void saveApplicationAudit(String applicationId,
-                                     String customerId,
-                                     String userId,
-                                     String userName,
-                                     String userRole,
-                                     String stageId,
-                                     String subStage,
-                                     String wfStatus,
-                                     String productId,
-                                     String loanAmount,
-                                     String purpose,
-                                     String repaymentFrequency,
-                                     String mobileNo,
-                                     String customerName,
-                                     String branchId,
-                                     Object request) {
-
-        try {
-
-            TbObCustAuditTrail audit = TbObCustAuditTrail.builder()
-                    .applicationId(applicationId)
-                    .customerId(customerId)
-                    .userId(userId)
-                    .userName(userName)
-                    .userRole(userRole)
-                    .stageId(stageId)
-                    .subStage(subStage)
-                    .wfStatus(wfStatus)
-                    .productId(productId)
-                    .loanAmt(loanAmount)
-                    .purpose(purpose)
-                    .repaymentFrequency(repaymentFrequency)
-                    .mobileNo(mobileNo)
-                    .customerName(customerName)
-                    .branchId(branchId)
-                    .payload(convertPayload(request))
-                    .build();
-
-            custAuditTrailRepository.save(audit);
-
-            log.info("Application Audit Saved Successfully :: ApplicationId={}", applicationId);
-
-        } catch (Exception e) {
-
-            log.error("Error while saving Application Audit", e);
-
+    public String resolveSearchEventType(String searchType) {
+        if ("FILTER".equalsIgnoreCase(searchType)) {
+            return AuditConstants.FILTER_SEARCH;
         }
-    }
-
-    /**
-     * Dashboard View Audit
-     */
-    public void logDashboardViewEvent(DashboardListRequestFields fields) {
-
-        if (fields == null) {
-            return;
+        if ("LOCAL".equalsIgnoreCase(searchType)) {
+            return AuditConstants.LOCAL_SEARCH;
         }
-
-        saveUserAudit(
-                AuditConstants.DASHBOARD_VIEWED,
-                null, // applicationId is not relevant for a dashboard view
-                null,
-                fields.getUserId(),
-                null,
-                fields.getUserRole(),
-                fields.getBranchId(),
-                null,
-                null,
-                fields
-        );
-    }
-
-    /**
-     * Global Search Audit
-     */
-    public void logGlobalSearchEvent(GlobalSearchRequestFields fields, Header header) {
-
-        if (fields == null) {
-            return;
-        }
-
-        saveUserAudit(
-                AuditConstants.GLOBAL_SEARCH,
-                null, // applicationId is not relevant for a global search
-                null,
-                fields.getUserId(),
-                null,
-                fields.getUserRole(),
-                null,
-                null,
-                null,
-                fields
-        );
-    }
-
-    /**
-     * Audit Trail Viewed
-     */
-    public void logAuditTrailViewed(String applicationId,
-                                    String customerId,
-                                    String userId,
-                                    String userRole) {
-
-        saveUserAudit(
-                AuditConstants.AUDIT_TRAIL_VIEWED,
-                applicationId,
-                customerId,
-                userId,
-                null,
-                userRole,
-                null,
-                null,
-                null,
-                null
-        );
+        return AuditConstants.GLOBAL_SEARCH;
     }
 
     /**
@@ -206,77 +97,52 @@ public class AuditService {
                 new TypeReference<Map<String, Object>>() {
                 });
     }
+
     /**
-     * Fetch Combined User + Application Audit Trail
+     * Serialize an object to a JSON string, for the plain-text payload/editeddetails/add_info columns
+     * on tb_ob_cust_audit_trail (not jsonb).
      */
-    public List<AuditTrailRecord> fetchCombinedAuditTrail(String applicationId,
-                                                          String customerId,
-                                                          String userId,
-                                                          String userRole) {
-
-        if (!StringUtils.hasText(applicationId)
-                && !StringUtils.hasText(customerId)) {
-            return new ArrayList<>();
+    private String toJsonString(Object object) {
+        if (object == null) {
+            return null;
         }
-
-        // Audit Trail Viewed Event
-        logAuditTrailViewed(
-                applicationId,
-                customerId,
-                userId,
-                userRole);
-
-        List<TbObUserAuditTrail> userAudits;
-        List<TbObCustAuditTrail> applicationAudits;
-
-        if (StringUtils.hasText(applicationId)) {
-
-            userAudits =
-                    userAuditTrailRepository.findByApplicationId(applicationId);
-
-            applicationAudits =
-                    custAuditTrailRepository.findByApplicationId(applicationId);
-
-        } else {
-
-            userAudits =
-                    userAuditTrailRepository.findByCustomerId(customerId);
-
-            applicationAudits =
-                    custAuditTrailRepository.findByCustomerId(customerId);
+        try {
+            return objectMapper.writeValueAsString(object);
+        } catch (Exception e) {
+            log.error("Error converting object to JSON string", e);
+            return null;
         }
-
-        Stream<AuditTrailRecord> userStream =
-                userAudits.stream().map(this::convertUserAudit);
-
-        Stream<AuditTrailRecord> applicationStream =
-                applicationAudits.stream().map(this::convertApplicationAudit);
-
-        return Stream.concat(userStream, applicationStream)
-                .sorted(Comparator.comparing(AuditTrailRecord::getEventTimestamp).reversed())
-                .collect(Collectors.toList());
     }
 
     /**
-     * Convert User Audit Entity to Response
+     * Parse a JSON string column back into a Map for the API response.
      */
-    private AuditTrailRecord convertUserAudit(TbObUserAuditTrail audit) {
-
-        String details = audit.getServiceType();
-
-        if (StringUtils.hasText(audit.getSubStage())) {
-            details += " - " + audit.getSubStage();
+    private Map<String, Object> parseJsonToMap(String json) {
+        if (!StringUtils.hasText(json)) {
+            return null;
         }
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (Exception e) {
+            log.error("Error parsing JSON string to map", e);
+            return null;
+        }
+    }
+    /**
+     * Fetch Application Audit Trail by ApplicationId
+     */
+    public List<AuditTrailRecord> fetchApplicationAuditTrail(String applicationId,
+                                                              String userId,
+                                                              String userRole) {
 
-        return AuditTrailRecord.builder()
-                .auditSource("USER")
-                .eventType(audit.getServiceType())
-                .eventTimestamp(audit.getCreateTs())
-                .userId(audit.getUserId())
-                .userName(audit.getUserName())
-                .userRole(audit.getUserRole())
-                .details(details)
-                .build();
+        if (!StringUtils.hasText(applicationId)) {
+            return new ArrayList<>();
+        }
+        return custAuditTrailRepository.findByApplicationId(applicationId).stream()
+                .map(this::convertApplicationAudit)
+                .sorted(Comparator.comparing(AuditTrailRecord::getEventTimestamp).reversed())
+                .collect(Collectors.toList());
     }
 
     /**
@@ -302,120 +168,19 @@ public class AuditService {
         }
 
         return AuditTrailRecord.builder()
-                .auditSource("APPLICATION")
-                .eventType(audit.getStageId())
+                .id(audit.getId())
                 .eventTimestamp(audit.getCreateTs())
                 .userId(audit.getUserId())
                 .userName(audit.getUserName())
                 .userRole(audit.getUserRole())
                 .details(details.toString())
+                .editedDetails(parseJsonToMap(audit.getEditedDetails()))
+                .payload(parseJsonToMap(audit.getPayload()))
+                .isEdited("true".equalsIgnoreCase(audit.getIsEdited()))
                 .build();
     }
     /**
-     * Generic User Audit with Custom Payload
-     */
-    public void saveUserAudit(String applicationId,
-                              String customerId,
-                              String userId,
-                              String userName,
-                              String userRole,
-                              String eventType,
-                              String subStage,
-                              Object payload,
-                              Object addInfo1,
-                              Object addInfo2) {
-
-        try {
-
-            TbObUserAuditTrail audit = TbObUserAuditTrail.builder()
-                    .applicationId(applicationId)
-                    .customerId(customerId)
-                    .userId(userId)
-                    .userName(userName)
-                    .userRole(userRole)
-                    .serviceType(eventType)
-                    .subStage(subStage)
-                    .payload(convertPayload(payload))
-                    .addInfo1(convertPayload(addInfo1))
-                    .addInfo2(convertPayload(addInfo2))
-                    .build();
-
-            userAuditTrailRepository.save(audit);
-
-            log.info("User Audit Saved Successfully :: {}", eventType);
-
-        } catch (Exception e) {
-
-            log.error("Error while saving User Audit", e);
-
-        }
-    }
-
-    /**
-     * Generic Application Audit with Custom Payload
-     */
-    public void saveApplicationAudit(String applicationId,
-                                     String customerId,
-                                     String userId,
-                                     String userName,
-                                     String userRole,
-                                     String stageId,
-                                     String subStage,
-                                     String wfStatus,
-                                     String flag,          // "N" -> simple insert, "Y" -> insert + modified_payload diff
-                                     Object payload,
-                                     Object addInfo1,
-                                     Object addInfo2,
-                                     Object addInfo3,
-                                     Object addInfo4) {
-
-        try {
-
-            Map<String, Object> newPayload = convertPayload(payload);
-            Map<String, Object> editedDetails = null;
-
-            if ("Y".equalsIgnoreCase(flag)) {
-                // last event of same application + stage se diff nikaalo
-                TbObCustAuditTrail prev = custAuditTrailRepository
-                        .findFirstByApplicationIdAndStageIdOrderByCreateTsDesc(applicationId, stageId);
-
-                if (prev != null) {
-                    editedDetails = buildEditedDetails(prev.getPayload(), newPayload);
-                }
-            }
-
-            TbObCustAuditTrail audit = TbObCustAuditTrail.builder()
-                    .applicationId(applicationId)
-                    .customerId(customerId)
-                    .userId(userId)
-                    .userName(userName)
-                    .userRole(userRole)
-                    .stageId(stageId)
-                    .subStage(subStage)
-                    .wfStatus(wfStatus)
-                    .payload(newPayload)
-                    .editedDetails(editedDetails)
-                    .isEdited(editedDetails != null)
-                    .addInfo1(convertPayload(addInfo1))
-                    .addInfo2(convertPayload(addInfo2))
-                    .addInfo3(convertPayload(addInfo3))
-                    .addInfo4(convertPayload(addInfo4))
-                    .createTs(LocalDateTime.now())
-                    .build();
-
-            custAuditTrailRepository.save(audit);
-            log.info("Application Audit Saved :: stage={} flag={}", stageId, flag);
-
-        } catch (Exception e) {
-            log.error("Error while saving Application Audit", e);
-        }
-    }
-
-    /**
-     * Application Audit for the KM create/update flow (ApplicationServiceImpl). Diffs against the
-     * previous submission of the same sub-stage (not just same stage) so re-submitting a sub-stage
-     * screen (e.g. KM edits 1.2 again) is captured correctly, and carries the kendra/group/branch
-     * context needed for audit-trail filtering.
+     * Application Audit
      */
     public void saveApplicationAudit(TbObApplicationMaster master,
                                      TbObCustomer customer,
@@ -427,25 +192,17 @@ public class AuditService {
                                      String stageId,
                                      String subStage,
                                      String wfStatus,
-                                     boolean isUpdate,
                                      Object payload,
+                                     Map<String, Object> modifiedDetails,
                                      Map<String, Object> addInfo1) {
 
         try {
 
             String applicationId = master.getApplicationId();
-            Map<String, Object> newPayload = convertPayload(payload);
-            Map<String, Object> editedDetails = null;
-
-            if (isUpdate) {
-                TbObCustAuditTrail prev = custAuditTrailRepository
-                        .findFirstByApplicationIdAndSubStageOrderByCreateTsDesc(applicationId, subStage);
-                if (prev != null && prev.getPayload() != null) {
-                    editedDetails = buildEditedDetails(prev.getPayload(), newPayload);
-                }
-            }
+            Map<String, Object> editedDetails = flattenModifiedDetails(modifiedDetails);
 
             TbObCustAuditTrail audit = TbObCustAuditTrail.builder()
+                    .id(String.valueOf(custAuditTrailRepository.getNextAuditTrailId()))
                     .appId(appId)
                     .applicationId(applicationId)
                     .userId(userId)
@@ -465,14 +222,13 @@ public class AuditService {
                     .kendraName(master.getKendraName())
                     .groupId(master.getGroupId())
                     .branchId(master.getBranchId())
-                    .payload(newPayload)
-                    .editedDetails(editedDetails)
-                    .isEdited(editedDetails != null)
-                    .addInfo1(addInfo1)
+                    .payload(toJsonString(payload))
+                    .editedDetails(toJsonString(editedDetails))
+                    .isEdited(editedDetails != null ? "true" : "false")
+                    .addInfo1(toJsonString(addInfo1))
                     .appVersion(appVersion)
                     .createTs(LocalDateTime.now())
                     .build();
-
             custAuditTrailRepository.save(audit);
             log.info("Application Audit Saved Successfully :: ApplicationId={}, subStage={}", applicationId, subStage);
 
@@ -482,53 +238,101 @@ public class AuditService {
     }
 
     /**
-     * Field-level diff between the previous and current payload of a stage/sub-stage submission.
-     * Shared by every caller that needs to know exactly what changed (KM re-submits, RPC edits, etc.)
-     * so this logic lives in one place instead of being duplicated per service.
+     * Application Audit for a real workflow stage transition (ApplicationWorkflowService.updateStage()
      */
-    public Map<String, Object> computeModifiedPayload(Map<String, Object> oldMap,
-                                                       Map<String, Object> newMap) {
-        if (oldMap == null || newMap == null) {
+    public void saveStageTransitionAudit(TbObApplicationMaster master,
+                                          String userId,
+                                          String userName,
+                                          String userRole,
+                                          String appId,
+                                          String appVersion,
+                                          String stageId,
+                                          String wfStatus,
+                                          Object payload) {
+
+        try {
+            TbObCustAuditTrail audit = TbObCustAuditTrail.builder()
+                    .id(String.valueOf(custAuditTrailRepository.getNextAuditTrailId()))
+                    .appId(appId)
+                    .applicationId(master.getApplicationId())
+                    .userId(userId)
+                    .userName(userName)
+                    .userRole(userRole)
+                    .stageId(stageId)
+                    .wfStatus(wfStatus)
+                    .customerId(master.getCustomerId())
+                    .customerName(master.getCustomerName())
+                    .mobileNo(master.getMobileNumber())
+                    .kendraId(master.getKendraId())
+                    .kendraName(master.getKendraName())
+                    .groupId(master.getGroupId())
+                    .branchId(master.getBranchId())
+                    .payload(toJsonString(payload))
+                    .appVersion(appVersion)
+                    .createTs(LocalDateTime.now())
+                    .build();
+
+            custAuditTrailRepository.save(audit);
+            log.info("Stage Transition Audit Saved Successfully :: ApplicationId={}, stageId={}, wfStatus={}",
+                    master.getApplicationId(), stageId, wfStatus);
+
+        } catch (Exception e) {
+            log.error("Error while saving Stage Transition Audit", e);
+        }
+    }
+
+    /**
+     * Application Audit for a Lead (tb_ob_cust_audit_trail). No application exists yet at lead stage,
+    */
+    public void saveApplicationLeadAudit(TbObLead lead, String userId, String eventType) {
+
+        try {
+            TbObCustAuditTrail audit = TbObCustAuditTrail.builder()
+                    .id(String.valueOf(custAuditTrailRepository.getNextAuditTrailId()))
+                    .applicationId(lead.getLeadId())
+                    .userId(userId)
+                    .stageId(eventType)
+                    .wfStatus(lead.getStatus())
+                    .customerName(lead.getCustomerName())
+                    .mobileNo(lead.getMobileNumber())
+                    .kendraId(lead.getKendraId())
+                    .branchId(lead.getBranchId())
+                    .payload(toJsonString(lead))
+                    .createTs(LocalDateTime.now())
+                    .build();
+            custAuditTrailRepository.save(audit);
+            log.info("Application Audit Saved Successfully for Lead :: LeadId={}, eventType={}", lead.getLeadId(), eventType);
+
+        } catch (Exception e) {
+            log.error("Error while saving Application Audit for Lead", e);
+        }
+    }
+
+    private Map<String, Object> flattenModifiedDetails(Map<String, Object> modifiedDetails) {
+        if (modifiedDetails == null || modifiedDetails.isEmpty()) {
             return null;
         }
+        Map<String, Object> flat = new LinkedHashMap<>();
+        flattenPayload("", modifiedDetails, flat);
+        return flat.isEmpty() ? null : flat;
+    }
 
-        Map<String, Object> changes = new LinkedHashMap<>();
 
-        for (Map.Entry<String, Object> e : newMap.entrySet()) {
-            Object oldVal = oldMap.get(e.getKey());
-            Object newVal = e.getValue();
-            if (!Objects.equals(oldVal, newVal)) {
-                Map<String, Object> oldNew = new LinkedHashMap<>();
-                oldNew.put("old", oldVal);
-                oldNew.put("new", newVal);
-                changes.put(e.getKey(), oldNew);
+    @SuppressWarnings("unchecked")
+    private void flattenPayload(String pathPrefix, Object node, Map<String, Object> out) {
+        if (node instanceof Map) {
+            ((Map<String, Object>) node).forEach((key, value) -> {
+                String path = pathPrefix.isEmpty() ? key : pathPrefix + "." + key;
+                flattenPayload(path, value, out);
+            });
+        } else if (node instanceof List) {
+            List<Object> list = (List<Object>) node;
+            for (int i = 0; i < list.size(); i++) {
+                flattenPayload(pathPrefix + "[" + i + "]", list.get(i), out);
             }
+        } else if (node != null) {
+            out.put(pathPrefix, node);
         }
-
-        return changes.isEmpty() ? null : changes;
     }
 
-    /**
-     * Count of fields that actually changed between two payloads. Callers can use this to
-     * decide/display "N fields modified" without recomputing the diff themselves.
-     */
-    public int countModifiedFields(Map<String, Object> oldMap, Map<String, Object> newMap) {
-        Map<String, Object> changes = computeModifiedPayload(oldMap, newMap);
-        return changes == null ? 0 : changes.size();
-    }
-
-    /**
-     * Builds the value persisted into tb_ob_cust_audit_trail.editeddetails: the per-field
-     * old/new diff plus the modified field count, or null when nothing changed.
-     */
-    public Map<String, Object> buildEditedDetails(Map<String, Object> oldPayload, Map<String, Object> newPayload) {
-        Map<String, Object> changes = computeModifiedPayload(oldPayload, newPayload);
-        if (changes == null) {
-            return null;
-        }
-        Map<String, Object> editedDetails = new LinkedHashMap<>();
-        editedDetails.put("modifiedFieldCount", changes.size());
-        editedDetails.put("changes", changes);
-        return editedDetails;
-    }
 }

@@ -41,7 +41,7 @@ public class BMReinterviewController {
             @ApiResponse(responseCode = "404", description = "Resource Not Found")
     })
     @Operation(summary = "Submit BM Reinterview", description = "BM submits reinterview details for member.")
-    @PostMapping(value = "/bm-reinterview/submit", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PostMapping(value = "/bmreinterview/submit", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<ResponseWrapper>> submitBMReInterview(
             @RequestBody BMReInterviewRequestWrapper requestWrapper,
             @RequestHeader String appId,

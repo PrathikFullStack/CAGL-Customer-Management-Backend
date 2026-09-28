@@ -8,15 +8,9 @@ import com.iexceed.appzillonbanking.cagl.cob.domain.ab.*;
 import com.iexceed.appzillonbanking.cagl.cob.enums.ApplicationStatus;
 import com.iexceed.appzillonbanking.cagl.cob.enums.WFStage;
 import com.iexceed.appzillonbanking.cagl.cob.exception.CGTDateValidationException;
-import com.iexceed.appzillonbanking.cagl.cob.payload.CGTDayDetailsRequestFields;
-import com.iexceed.appzillonbanking.cagl.cob.payload.CGTDetailsRequest;
-import com.iexceed.appzillonbanking.cagl.cob.payload.CGTDetailsRequestFields;
-import com.iexceed.appzillonbanking.cagl.cob.payload.CGTMemberDetailsRequestFields;
-import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObCGTDetailsRepository;
-import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObCustOthersRepository;
-import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObGroupRepository;
+import com.iexceed.appzillonbanking.cagl.cob.payload.*;
+import com.iexceed.appzillonbanking.cagl.cob.repository.cus.*;
 import com.iexceed.appzillonbanking.cagl.cob.repository.ab.TbObApplicationMasterRepository;
-import com.iexceed.appzillonbanking.cagl.cob.repository.cus.TbObLoanRepository;
 import com.iexceed.appzillonbanking.cagl.cob.utils.SequenceUtil;
 import com.iexceed.appzillonbanking.core.payload.Header;
 import com.iexceed.appzillonbanking.core.payload.Response;
@@ -44,7 +38,7 @@ public class CGTService {
     private TbObCGTDetailsRepository cgtRepository;
 
     @Autowired
-    private TbObCustOthersRepository custOthersRepository;
+    private TbObCustomerRepository customerRepository;
 
     @Autowired
     private TbObApplicationMasterRepository applicationMasterRepository;
@@ -61,9 +55,6 @@ public class CGTService {
     @Autowired
     private SequenceUtil sequenceUtil;
 
-    // Deliberately instance (not static) fields -- Spring's @Value injection silently no-ops on
-    // static fields, which previously left these permanently at 0 regardless of what
-    // application.properties said, and quietly disabled every check that used them.
     @Value("${onboarding.CGTService.cgt-mandatory-days:3}")
     private int cgtMandatoryDays;
 
@@ -71,7 +62,7 @@ public class CGTService {
     private int cgtMinimumMembers;
 
     private static final String CGT_ID_SEQUENCE = "seq_ob_cgt_schedule_id";
-    private static final String CUST_OTHER_ID_SEQUENCE = "seq_ob_cust_others_id";
+    private static final String STAGE_CGT = "CGT";
 
     public static final String EXCEPTION_MSG = "Something went wrong, Please try again!!";
     public static final String EXCEPTION_OCCURED = "Exception occurred";
@@ -79,20 +70,8 @@ public class CGTService {
     private static final Logger logger = LogManager.getLogger(CGTService.class);
 
     /**
-     * Single entry point for both the real CGT submit and the KM's "Save" (draft) action --
-     * distinguished by {@code requestObj.isDraft}:
-     * <ul>
-     *   <li><b>isDraft = true</b> (Save button): no validation at all. Only
-     *       {@code tb_ob_cgt_details} is written, exactly as sent, however incomplete. A new
-     *       record starts at status {@code PENDING}; an existing record's status is left exactly
-     *       as it was, so a draft save can never mark a day complete or touch any other table.</li>
-     *   <li><b>isDraft = false/absent</b> (real submit -- Mark Attendance, Complete training
-     *       topics, End CGT for Day X, End CGT): full validation runs, and every table listed
-     *       in the class-level doc is updated. Setting {@code endCGTFlag = true} additionally
-     *       enforces the Day-3 mandatory checks and advances the application stage.</li>
-     * </ul>
-     * {@code isDraft} and {@code endCGTFlag} are mutually exclusive -- a draft save can never
-     * also be the call that ends CGT, so sending both as {@code true} fails validation outright.
+     * Handles both the actual CGT submit and the KM's draft "Save" action.
+     * Draft saves skip validation and only touch tb_ob_cgt_details; a real submit runs full validation and updates related tables.
      */
 
     @Transactional
@@ -125,7 +104,6 @@ public class CGTService {
             TbObCGTDetails cgtDetails;
 
             if (isDraft) {
-
                 if (tbObCGTDetailsOpt.isPresent()) {
                     cgtDetails = tbObCGTDetailsOpt.get();
                     updateExistingCGT(cgtDetails, requestObj, allDays, request.getUserId(), cgtDetails.getStatus(), requestObj.getSubStage());
@@ -133,15 +111,16 @@ public class CGTService {
                     cgtDetails = createNewCGT(requestObj, allDays, request.getUserId(), requestObj.getStatus(), requestObj.getSubStage());
                 }
                 cgtRepository.save(cgtDetails);
-
             } else {
-
                 validateScheduleDates(allDays);
-                validateMinimumMembers(allDays);
+//                validateMinimumMembers(allDays);
                 validateLearningSession(allDays);
 
-                if (Boolean.TRUE.equals(requestObj.getEndCGTFlag())) {
-                    validateWithMandatoryDays(requestObj);
+                // status=COMPLETED means the KM is marking CGT as done, which triggers the strict mandatory-day checks and stage movement.
+                boolean isCompleting = "COMPLETED".equalsIgnoreCase(requestObj.getStatus());
+
+                if (isCompleting || requestObj.getStatus().equalsIgnoreCase("C"+cgtMandatoryDays)) {
+                    validateWithMandatoryDays(allDays);
                     validateAnnexureAndLoanCapture(allDays);
                 }
 
@@ -153,21 +132,23 @@ public class CGTService {
                 }
                 cgtRepository.save(cgtDetails);
 
-                // Fetched once here and reused by both updateCustomerCGTDetails and
-                // updateApplicationMasterStage, instead of each independently re-querying
-                // tb_ob_application_master for the same customer IDs.
+                // Drives the attendance/learning-session merge for every submitted member below.
                 List<String> customerIds = extractCustomerIds(allDays);
-                List<TbObApplicationMaster> applications = customerIds.isEmpty()
-                        ? Collections.emptyList()
-                        : applicationMasterRepository.findByCustomerIdIn(customerIds);
 
-                updateCustomerCGTDetails(requestObj, allDays, customerIds, applications, request.getUserId(), cgtDetails.getCgtId());
+                String cgtStatus = computeCgtStatus(allDays, isCompleting);
+                logger.info("CGT Status : {}",cgtStatus);
 
-                if (Boolean.TRUE.equals(requestObj.getEndCGTFlag())) {
-                    stageMovementRemark = updateApplicationMasterStage(applications, request.getUserId());
+                updateCustomerCGTDetails(requestObj, allDays, customerIds, request.getUserId(), cgtDetails.getCgtId(), cgtStatus);
+
+                if (isCompleting) {
+                    List<String> mandatoryDayApplicationIds = extractMandatoryDayApplicationIds(allDays);
+                    List<TbObApplicationMaster> loanCapturedApplications = mandatoryDayApplicationIds.isEmpty()
+                            ? Collections.emptyList()
+                            : applicationMasterRepository.findByApplicationIdIn(mandatoryDayApplicationIds);
+                    stageMovementRemark = updateApplicationMasterStage(loanCapturedApplications, request.getUserId());
                 }
 
-                updateGroupCgtDetails(requestObj, allDays, request.getUserId(), Boolean.TRUE.equals(requestObj.getEndCGTFlag()));
+                updateGroupCgtDetails(requestObj, cgtStatus, request.getUserId());
             }
 
             // Audit -->> TODO
@@ -192,11 +173,7 @@ public class CGTService {
                 .build());
     }
 
-    /**
-     * Flattens {@code conductCGTPayload} and {@code addCGTPayload} into one list, computed once
-     * per request and threaded through every method below that needs "all days" -- avoids the
-     * same two-payload merge being repeated from scratch in nine different places.
-     */
+    /** Merges conductCGTPayload and addCGTPayload into a single list of days for this request. */
     private List<CGTDayDetailsRequestFields> mergeDays(CGTDetailsRequestFields requestObj) {
         List<CGTDayDetailsRequestFields> allDays = new ArrayList<>();
         if (requestObj.getConductCGTPayload() != null) {
@@ -208,28 +185,39 @@ public class CGTService {
         return allDays;
     }
 
-    /** Distinct, non-null customer IDs referenced anywhere across all days in this submission. */
+    /** Returns distinct customer IDs found anywhere across all days in this submission. */
     private List<String> extractCustomerIds(List<CGTDayDetailsRequestFields> allDays) {
         return allDays.stream()
-                .filter(day -> day.getMemberDetails() != null)
-                .flatMap(day -> day.getMemberDetails().stream())
-                .map(CGTMemberDetailsRequestFields::getCustomerId)
+                .filter(day -> day.getMemberAttendanceDetails() != null)
+                .flatMap(day -> day.getMemberAttendanceDetails().stream())
+                .map(CGTMemberAttendanceDetailsRequestFields::getCustomerId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
     }
 
     /**
-     * Every day submitted must have at least {@code cgtMinimumMembers} entries in
-     * {@code memberDetails} -- CGT can't be conducted or recorded for a group that small on
-     * that day.
+     * Returns distinct application IDs from the mandatory day's memberLoanDetails.
+     * These are the only members eligible for stage movement to BM Re-Interview.
      */
+    private List<String> extractMandatoryDayApplicationIds(List<CGTDayDetailsRequestFields> allDays) {
+        return allDays.stream()
+                .filter(day -> day.getDay() != null && day.getDay() == cgtMandatoryDays)
+                .filter(day -> day.getMemberLoanDetails() != null)
+                .flatMap(day -> day.getMemberLoanDetails().stream())
+                .map(CGTMemberLoanDetailsFields::getApplicationId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    /** Checks that every submitted day has at least the minimum required members. */
     private void validateMinimumMembers(List<CGTDayDetailsRequestFields> allDays) {
 
         logger.info("Validating Minimum Members per CGT Day.");
 
         for (CGTDayDetailsRequestFields day : allDays) {
-            List<CGTMemberDetailsRequestFields> members = day.getMemberDetails();
+            List<CGTMemberAttendanceDetailsRequestFields> members = day.getMemberAttendanceDetails();
             if (members == null || members.size() < cgtMinimumMembers) {
                 throw new CGTDateValidationException(
                         "Minimum " + cgtMinimumMembers + " members are mandatory for Day-" + day.getDay() + ".");
@@ -239,10 +227,7 @@ public class CGTService {
         logger.info("Minimum Members Validation Completed.");
     }
 
-    /**
-     * Every day submitted must record what topics were actually covered -- a day with no
-     * {@code learningSession} entries is treated as not having been conducted at all.
-     */
+    /** Checks that every submitted day has learning session details recorded. */
     private void validateLearningSession(List<CGTDayDetailsRequestFields> allDays) {
 
         logger.info("Validating Learning Session per CGT Day.");
@@ -257,98 +242,32 @@ public class CGTService {
         logger.info("Learning Session Validation Completed.");
     }
 
-    /**
-     * Runs only when the KM is ending CGT (endCGTFlag=true): all {@code cgtMandatoryDays} days
-     * (default 3) must be accounted for, whether conducted fully offline ({@code addCGTPayload}),
-     * fully online ({@code conductCGTPayload}), or a mix of both. When mixed, any offline day must
-     * come strictly after the last online day -- offline entry is only meant for "extra" days
-     * added on top of what was already conducted online, never to backfill an online gap. This
-     * one needs the two payloads kept separate (not the merged {@code allDays}) precisely because
-     * it distinguishes offline from online.
-     */
-    private void validateWithMandatoryDays(CGTDetailsRequestFields requestObj) {
+    /** Checks that all mandatory CGT days are present when status is COMPLETED. */
+    private void validateWithMandatoryDays(List<CGTDayDetailsRequestFields> allDays) {
 
         logger.info("Validating Mandatory CGT Days.");
 
-        List<CGTDayDetailsRequestFields> offlineDays = requestObj.getAddCGTPayload();
-        List<CGTDayDetailsRequestFields> onlineDays = requestObj.getConductCGTPayload();
+        Set<Integer> daySet = allDays.stream()
+                .map(CGTDayDetailsRequestFields::getDay)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
 
-        boolean hasOffline = offlineDays != null && !offlineDays.isEmpty();
-        boolean hasOnline = onlineDays != null && !onlineDays.isEmpty();
-
-        if (hasOffline && !hasOnline) {
-            if (offlineDays.size() < cgtMandatoryDays) {
-                throw new CGTDateValidationException(
-                        "Minimum " + cgtMandatoryDays + " CGT days are mandatory.");
-            }
-
-            Set<Integer> daySet = offlineDays.stream()
-                    .map(CGTDayDetailsRequestFields::getDay)
-                    .collect(Collectors.toSet());
-
-            for (int i = 1; i <= cgtMandatoryDays; i++) {
-                if (!daySet.contains(i)) {
-                    throw new CGTDateValidationException(
-                            "Day-" + i + " is mandatory.");
-                }
-            }
-            return;
+        if (daySet.size() < cgtMandatoryDays) {
+            throw new CGTDateValidationException(
+                    "Minimum " + cgtMandatoryDays + " CGT days are mandatory.");
         }
 
-        if (hasOnline && !hasOffline) {
-            if (onlineDays.size() < cgtMandatoryDays) {
+        for (int i = 1; i <= cgtMandatoryDays; i++) {
+            if (!daySet.contains(i)) {
                 throw new CGTDateValidationException(
-                        "Minimum " + cgtMandatoryDays + " CGT days are mandatory.");
+                        "Day-" + i + " is mandatory.");
             }
-            Set<Integer> daySet = onlineDays.stream()
-                    .map(CGTDayDetailsRequestFields::getDay)
-                    .collect(Collectors.toSet());
-
-            for (int i = 1; i <= cgtMandatoryDays; i++) {
-                if (!daySet.contains(i)) {
-                    throw new CGTDateValidationException(
-                            "Day-" + i + " is mandatory.");
-                }
-            }
-            return;
         }
 
-        if (hasOffline && hasOnline) {
-            int lastOnlineDay = onlineDays.stream()
-                    .mapToInt(CGTDayDetailsRequestFields::getDay)
-                    .max()
-                    .orElse(0);
-
-            for (CGTDayDetailsRequestFields day : offlineDays) {
-                if (day.getDay() <= lastOnlineDay) {
-                    throw new CGTDateValidationException(
-                            "Offline CGT can contain only additional days after Day-"
-                                    + lastOnlineDay);
-                }
-            }
-
-            Set<Integer> combinedDaySet = new HashSet<>();
-            onlineDays.forEach(d -> combinedDaySet.add(d.getDay()));
-            offlineDays.forEach(d -> combinedDaySet.add(d.getDay()));
-
-            if (combinedDaySet.size() < cgtMandatoryDays) {
-                throw new CGTDateValidationException(
-                        "Minimum " + cgtMandatoryDays + " CGT days are mandatory.");
-            }
-            for (int i = 1; i <= cgtMandatoryDays; i++) {
-                if (!combinedDaySet.contains(i)) {
-                    throw new CGTDateValidationException(
-                            "Day-" + i + " is mandatory.");
-                }
-            }
-        }
+        logger.info("Mandatory CGT Days Validation Completed.");
     }
 
-    /**
-     * Hands a defensive copy of {@code allDays} to {@link #validateCGTSchedule} (which sorts its
-     * input in place) so the shared {@code allDays} list's original order is never mutated for
-     * whichever other method reads it next in the same request.
-     */
+    /** Passes a copy of allDays to validateCGTSchedule so the original list order isn't disturbed. */
     private void validateScheduleDates(List<CGTDayDetailsRequestFields> allDays) {
         logger.info("Validating CGT Dates.");
 
@@ -359,11 +278,7 @@ public class CGTService {
         logger.info("CGT Date Validation Completed.");
     }
 
-    /**
-     * Enforces day ordering regardless of which payload each day came from: Day-1 must exist,
-     * day numbers can't skip, each day must fall at least one calendar day after the previous
-     * one, and the last day recorded can't be in the future.
-     */
+    /** Checks day ordering: Day-1 must exist, no days skipped, dates increase, and last day isn't in the future. */
     private void validateCGTSchedule(List<CGTDayDetailsRequestFields> dayDetails) {
 
         logger.info("Validating CGT Schedule.");
@@ -405,10 +320,8 @@ public class CGTService {
     }
 
     /**
-     * Runs only when ending CGT (endCGTFlag=true): the final mandatory day must have a signed
-     * annexure attached and loan details marked as captured -- CGT can't be closed without both.
-     * {@link #validateLoanDetailsCaptured} then cross-checks that "loan details captured" claim
-     * against {@code tb_ob_loan} rather than trusting the client's boolean at face value.
+     * Checks the final mandatory day has an annexure, loan capture flag, and enough member loan details.
+     * Also cross-checks the loan capture claim against tb_ob_loan.
      */
     private void validateAnnexureAndLoanCapture(List<CGTDayDetailsRequestFields> allDays) {
 
@@ -423,6 +336,15 @@ public class CGTService {
                 if (!Boolean.TRUE.equals(day.getLoanDetailsCapture())) {
                     throw new CGTDateValidationException(
                             "Loan details capture is mandatory for Day-" + cgtMandatoryDays + ".");
+                }
+                if (day.getMemberLoanDetails() == null || day.getMemberLoanDetails().isEmpty()) {
+                    throw new CGTDateValidationException(
+                            "Member loan details are mandatory for Day-" + cgtMandatoryDays + ".");
+                }
+                if (day.getMemberLoanDetails().size() < cgtMinimumMembers) {
+                    throw new CGTDateValidationException(
+                            "Minimum " + cgtMinimumMembers + " members with loan details are mandatory for Day-"
+                                    + cgtMandatoryDays + ".");
                 }
                 validateLoanDetailsCaptured(day);
             }
@@ -439,19 +361,15 @@ public class CGTService {
         logger.info("Annexure and Loan Details Capture Validation Completed.");
     }
 
-    /**
-     * A day can claim {@code loanDetailsCapture=true} without a loan actually having been
-     * captured, so this verifies every member on that day has a matching row in
-     * {@code tb_ob_loan} and fails with the specific customer IDs that don't.
-     */
+    /** Verifies every member in memberLoanDetails actually has a loan row in tb_ob_loan. */
     private void validateLoanDetailsCaptured(CGTDayDetailsRequestFields day) {
 
-        if (day.getMemberDetails() == null || day.getMemberDetails().isEmpty()) {
+        if (day.getMemberLoanDetails() == null || day.getMemberLoanDetails().isEmpty()) {
             return;
         }
 
-        List<String> customerIds = day.getMemberDetails().stream()
-                .map(CGTMemberDetailsRequestFields::getCustomerId)
+        List<String> customerIds = day.getMemberLoanDetails().stream()
+                .map(CGTMemberLoanDetailsFields::getCustomerId)
                 .filter(Objects::nonNull)
                 .map(String::valueOf)
                 .collect(Collectors.toList());
@@ -466,18 +384,18 @@ public class CGTService {
 
         List<String> missingLoanDetails = customerIds.stream()
                 .filter(customerId -> !customerIdsWithLoan.contains(customerId))
-                .toList();
+                .collect(Collectors.toList());
 
         if (!missingLoanDetails.isEmpty()) {
-//            throw new CGTDateValidationException(
-//                    "Loan details not found in tb_ob_loan for Customer Id(s) : " + missingLoanDetails
-//                            + " on Day-" + cgtMandatoryDays + ".");
             logger.warn("Loan details not found in tb_ob_loan for Customer Id(s) : {}", missingLoanDetails);
+            throw new CGTDateValidationException(
+                    "Loan details not found in tb_ob_loan for Customer Id(s) : " + missingLoanDetails
+                            + " on Day-" + cgtMandatoryDays + ".");
         }
     }
 
-    /** First-ever submission for this group: builds a fresh {@code tb_ob_cgt_details} row. */
-    private TbObCGTDetails createNewCGT(CGTDetailsRequestFields mergedObj, List<CGTDayDetailsRequestFields> allDays, String userId, String status, String subStage) {
+    /** First-ever submission for this group: builds a fresh tb_ob_cgt_details row. */
+    private TbObCGTDetails createNewCGT(CGTDetailsRequestFields mergedObj, List<CGTDayDetailsRequestFields> allDays, String userId, String status, List<Map<String, Object>> subStage) {
 
         logger.info("Creating New CGT Details.");
 
@@ -488,7 +406,7 @@ public class CGTService {
                 .addCGTPayload(mergedObj.getAddCGTPayload() != null ? new ArrayList<>(mergedObj.getAddCGTPayload()) : null)
                 .conductCGTPayload(mergedObj.getConductCGTPayload() != null ? new ArrayList<>(mergedObj.getConductCGTPayload()) : null)
                 .status(status != null ? status : "PENDING")
-                .subStage(subStage)
+                .subStage(serializeSubStage(subStage))
                 .endCgtTs("COMPLETED".equalsIgnoreCase(status) ? LocalDateTime.now() : null)
                 .annexureId(buildAnnexureId(null, allDays))
                 .groupPhotoId(buildGroupPhotoId(null, allDays))
@@ -501,25 +419,20 @@ public class CGTService {
         return cgtDetails;
     }
 
-    /** Draws the next {@code cgt_id} straight from the Postgres sequence, bypassing the JPA/Hibernate id generator. */
+    /** Draws the next cgt_id straight from the Postgres sequence, bypassing the JPA/Hibernate id generator. */
     private String nextCgtId() {
         return sequenceUtil.nextValueAsString(CGT_ID_SEQUENCE);
     }
 
-    /**
-     * A later submission for a group that already has a {@code tb_ob_cgt_details} row: day
-     * payloads are replaced wholesale with whatever was just sent (the caller is expected to
-     * send the full merged set of days each time, not a delta), while annexure/group-photo are
-     * merged additively across days via {@link #buildAnnexureId}/{@link #buildGroupPhotoId}.
-     */
-    private void updateExistingCGT(TbObCGTDetails cgtDetails, CGTDetailsRequestFields mergedObj, List<CGTDayDetailsRequestFields> allDays, String userId, String status, String subStage) {
+    /** Updates an existing CGT record; day payloads are replaced, annexure/group-photo are merged. */
+    private void updateExistingCGT(TbObCGTDetails cgtDetails, CGTDetailsRequestFields mergedObj, List<CGTDayDetailsRequestFields> allDays, String userId, String status, List<Map<String, Object>> subStage) {
 
         logger.info("Updating Existing CGT Details.");
 
         cgtDetails.setAddCGTPayload(mergedObj.getAddCGTPayload() != null ? new ArrayList<>(mergedObj.getAddCGTPayload()) : null);
         cgtDetails.setConductCGTPayload(mergedObj.getConductCGTPayload() != null ? new ArrayList<>(mergedObj.getConductCGTPayload()) : null);
         cgtDetails.setStatus(status != null ? status : cgtDetails.getStatus());
-        cgtDetails.setSubStage(subStage);
+        cgtDetails.setSubStage(serializeSubStage(subStage));
         if ("COMPLETED".equalsIgnoreCase(status)) {
             cgtDetails.setEndCgtTs(LocalDateTime.now());
         }
@@ -531,16 +444,11 @@ public class CGTService {
     }
 
     /**
-     * Mirrors this submission's attendance and learning-topics into each member's own
-     * {@code tb_ob_cust_others} row, keyed by day number so re-submitting the same day updates
-     * that day's entry in place instead of duplicating it. This builds up incrementally across
-     * every submission (not just the final one), so a member's attendance history is always
-     * current regardless of how many times a day gets re-saved. {@code customerIds}/{@code applications}
-     * are passed in already fetched from {@link #conductCGT} rather than re-derived/re-queried here.
+     * Updates each member's own tb_ob_customer row with this submission's attendance, learning topics, and CGT status.
+     * Re-submitting the same day updates it in place instead of duplicating it.
      */
     private void updateCustomerCGTDetails(CGTDetailsRequestFields requestObj, List<CGTDayDetailsRequestFields> allDays,
-                                          List<String> customerIds, List<TbObApplicationMaster> applications,
-                                          String userId, String cgtId) {
+                                          List<String> customerIds, String userId, String cgtId, String cgtStatus) {
 
         logger.info("Updating Customer CGT Details.");
 
@@ -554,51 +462,42 @@ public class CGTService {
             return;
         }
 
-        Map<String, TbObCustOthers> existingMap = custOthersRepository
+        Map<String, TbObCustomer> existingMap = customerRepository
                 .findByCustomerIdIn(customerIds)
                 .stream()
-                .collect(Collectors.toMap(TbObCustOthers::getCustomerId, c -> c));
-
-        Map<String, String> customerIdToApplicationId = applications.stream()
-                .collect(Collectors.toMap(TbObApplicationMaster::getCustomerId,
-                        TbObApplicationMaster::getApplicationId, (existing, duplicate) -> existing));
+                .collect(Collectors.toMap(TbObCustomer::getCustomerId, c -> c));
 
         LocalDateTime now = LocalDateTime.now();
-        Map<String, TbObCustOthers> toSaveMap = new LinkedHashMap<>();
+        Map<String, TbObCustomer> toSaveMap = new LinkedHashMap<>();
 
         for (CGTDayDetailsRequestFields day : allDays) {
 
-            if (day.getMemberDetails() == null || day.getMemberDetails().isEmpty()) {
+            if (day.getMemberAttendanceDetails() == null || day.getMemberAttendanceDetails().isEmpty()) {
                 continue;
             }
 
-            for (CGTMemberDetailsRequestFields member : day.getMemberDetails()) {
+            for (CGTMemberAttendanceDetailsRequestFields member : day.getMemberAttendanceDetails()) {
 
                 if (member.getCustomerId() == null) {
                     logger.warn("Skipping member with null Customer Id for Day-{}.", day.getDay());
                     continue;
                 }
 
+                TbObCustomer customer = existingMap.get(member.getCustomerId());
+
+                if (customer == null) {
+                    logger.warn("Customer Id : {} not found in tb_ob_customer; skipping CGT detail update for Day-{}.",
+                            member.getCustomerId(), day.getDay());
+                    continue;
+                }
+
                 try {
-                    TbObCustOthers custOthers = existingMap.get(member.getCustomerId());
-
-                    if (custOthers == null) {
-                        custOthers = new TbObCustOthers();
-                        custOthers.setCustOtherId(sequenceUtil.nextValueAsString(CUST_OTHER_ID_SEQUENCE));
-                        custOthers.setCustomerId(member.getCustomerId());
-                        custOthers.setApplicationId(customerIdToApplicationId.get(member.getCustomerId()));
-                        custOthers.setCreatedTs(now);
-                        existingMap.put(member.getCustomerId(), custOthers);
-                    }
-
-//                    List<Map<String, Object>> attendanceList = custOthers.getAttendance() != null
-//                            ? custOthers.getAttendance()
-//                            : new ArrayList<>();
-                    List<Map<String, Object>> attendanceList = fromJsonOrEmptyList(custOthers.getAttendance());
+                    List<Map<String, Object>> attendanceList = fromJsonOrEmptyList(customer.getAttendance());
 
                     boolean attendanceUpdated = false;
                     for (Map<String, Object> record : attendanceList) {
                         if (Objects.equals(record.get("day"), day.getDay())) {
+                            record.put("stage", STAGE_CGT);
                             record.put("date", day.getDate());
                             record.put("present", member.getPresent());
                             record.put("markedBy", userId);
@@ -609,23 +508,20 @@ public class CGTService {
                     if (!attendanceUpdated) {
                         Map<String, Object> attendance = new LinkedHashMap<>();
                         attendance.put("day", day.getDay());
+                        attendance.put("stage", STAGE_CGT);
                         attendance.put("date", day.getDate());
                         attendance.put("present", member.getPresent());
                         attendance.put("markedBy", userId);
                         attendanceList.add(attendance);
                     }
-//                    custOthers.setAttendance(attendanceList);
-                    custOthers.setAttendance(toJsonOrEmpty(attendanceList));
+                    customer.setAttendance(toJsonOrEmpty(attendanceList));
 
-//                    List<Map<String, Object>> learningList = custOthers.getLearningSession() != null
-//                            ? custOthers.getLearningSession()
-//                            : new ArrayList<>();
-
-                    List<Map<String, Object>> learningList = fromJsonOrEmptyList(custOthers.getLearningSession());
+                    List<Map<String, Object>> learningList = fromJsonOrEmptyList(customer.getLearningSession());
 
                     boolean learningUpdated = false;
                     for (Map<String, Object> record : learningList) {
                         if (Objects.equals(record.get("day"), day.getDay())) {
+                            record.put("stage", STAGE_CGT);
                             record.put("date", day.getDate());
                             record.put("learningTopics", day.getLearningSession());
                             learningUpdated = true;
@@ -635,23 +531,23 @@ public class CGTService {
                     if (!learningUpdated) {
                         Map<String, Object> learning = new LinkedHashMap<>();
                         learning.put("day", day.getDay());
+                        learning.put("stage", STAGE_CGT);
                         learning.put("date", day.getDate());
                         learning.put("learningTopics", day.getLearningSession());
                         learningList.add(learning);
                     }
-//                    custOthers.setLearningSession(learningList);
-                    custOthers.setLearningSession(toJsonOrEmpty(learningList));
+                    customer.setLearningSession(toJsonOrEmpty(learningList));
 
                     Map<String, Object> cgtInfo = new LinkedHashMap<>();
                     cgtInfo.put("cgtId", cgtId);
                     cgtInfo.put("groupId", requestObj.getGroupId());
                     cgtInfo.put("kendraId", requestObj.getKendraId());
-//                    custOthers.setCgtInfo(cgtInfo);
-                    custOthers.setCgtInfo(toJsonOrEmpty(cgtInfo));
+                    customer.setCgtInfo(toJsonOrEmpty(cgtInfo));
+                    customer.setCgtStatus(cgtStatus);
 
-                    custOthers.setUpdatedTs(now);
-                    custOthers.setUpdatedBy(userId);
-                    toSaveMap.put(member.getCustomerId(), custOthers);
+                    customer.setUpdatedTs(now);
+                    customer.setUpdatedBy(userId);
+                    toSaveMap.put(member.getCustomerId(), customer);
 
                 } catch (Exception ex) {
                     logger.error("Unable to update Customer CGT Details for Customer Id : {}", member.getCustomerId(), ex);
@@ -660,15 +556,11 @@ public class CGTService {
             }
         }
 
-        custOthersRepository.saveAll(new ArrayList<>(toSaveMap.values()));
+        customerRepository.saveAll(new ArrayList<>(toSaveMap.values()));
         logger.info("Customer CGT Details Updated Successfully.");
     }
 
-    /**
-     * Serializes any {@code tb_ob_cust_others} sub-payload (attendance/learningSession/cgtInfo)
-     * to its JSON string form for storage in the now-TEXT columns. A null value or empty
-     * collection is stored as "" rather than the literal "null"/"[]".
-     */
+    /** Converts a value to its JSON string form; null or empty collections are stored as "". */
     private String toJsonOrEmpty(Object value) {
 
         if (value == null || (value instanceof Collection<?> collection && collection.isEmpty())) {
@@ -681,13 +573,7 @@ public class CGTService {
         }
     }
 
-    /**
-     * Deserializes the JSON string persisted in {@code attendance}/{@code learningSession}
-     * (now TEXT columns) back into a mutable {@code List<Map<String, Object>>} so the day-wise
-     * merge logic can update it in place, same as before these columns moved off native JSON
-     * types. A null/blank value (new member, or column not yet populated) is treated as an
-     * empty, mutable list rather than an error.
-     */
+    /** Parses a stored JSON string back into a mutable list; blank/null is treated as an empty list. */
     private List<Map<String, Object>> fromJsonOrEmptyList(String json) {
 
         if (json == null || json.isBlank()) {
@@ -700,14 +586,7 @@ public class CGTService {
         }
     }
 
-    /**
-     * Builds/merges the day-wise annexure id string stored on {@code tb_ob_cgt_details}, e.g.
-     * {@code "1-<annexureId>#2-<annexureId>"}. Only days at or beyond {@code cgtMandatoryDays}
-     * contribute an entry (earlier days don't require an annexure). Since {@code allDays} is the
-     * full day list resent on every submission, whatever value a day carries in the current
-     * request wins for that day -- overwriting it if non-empty, clearing it if null/empty --
-     * while days entirely absent from the current submission keep whatever was persisted before.
-     */
+    /** Builds/merges the day-wise annexure id string, e.g. "1-id#2-id"; only mandatory days onward count. */
     private String buildAnnexureId(String existingAnnexureId, List<CGTDayDetailsRequestFields> allDays) {
 
         Map<Integer, String> annexureMap = parseDayIdMap(existingAnnexureId);
@@ -726,11 +605,7 @@ public class CGTService {
         return buildDayIdString(annexureMap);
     }
 
-    /**
-     * Builds/merges the day-wise group-photo id string on {@code tb_ob_cgt_details}, same merge
-     * semantics as {@link #buildAnnexureId} but with no mandatory-day restriction -- a group
-     * photo can be attached on any day.
-     */
+    /** Builds/merges the day-wise group-photo id string; a group photo can be attached on any day. */
     private String buildGroupPhotoId(String existingGroupPhotoId, List<CGTDayDetailsRequestFields> allDays) {
 
         Map<Integer, String> photoMap = parseDayIdMap(existingGroupPhotoId);
@@ -747,11 +622,7 @@ public class CGTService {
         return buildDayIdString(photoMap);
     }
 
-    /**
-     * Parses a {@code "1-<id>#2-<id>"} style string back into a day-number-keyed map so it can be
-     * merged with newly submitted days. The split on {@code "-"} is limited to 2 parts since the
-     * id itself (e.g. a UUID) may contain hyphens.
-     */
+    /** Parses a "1-id#2-id" style string into a day-number-keyed map for merging with new days. */
     private Map<Integer, String> parseDayIdMap(String existing) {
 
         Map<Integer, String> dayIdMap = new LinkedHashMap<>();
@@ -777,7 +648,7 @@ public class CGTService {
         return dayIdMap;
     }
 
-    /** Renders a day-number-keyed id map back into {@code "1-<id>#2-<id>"} form, sorted by day. */
+    /** Renders a day-number-keyed id map back into "1-id#2-id" form, sorted by day. */
     private String buildDayIdString(Map<Integer, String> dayIdMap) {
 
         if (dayIdMap.isEmpty()) {
@@ -790,12 +661,31 @@ public class CGTService {
                 .collect(Collectors.joining("#"));
     }
 
-    /**
-     * Builds the JSON response body returned to the caller after a save/schedule call.
-     * {@code stageMovementRemark} is only non-null when {@link #updateApplicationMasterStage} had
-     * something to report (members held back from BM Re-Interview, or excluded from it) --
-     * absent from the response entirely otherwise.
-     */
+    /** sub_stage is a TEXT column, so the request's list is stored as a JSON array string. */
+    private String serializeSubStage(List<Map<String, Object>> subStage) {
+        if (subStage == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(subStage);
+        } catch (JsonProcessingException ex) {
+            throw new CGTDateValidationException("Invalid subStage payload.");
+        }
+    }
+
+    /** Returns sub_stage as a JSON structure, unwrapping values that were stringified more than once. */
+    private Object parseSubStageForResponse(String subStage) {
+        if (subStage == null || subStage.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(subStage, Object.class);
+        } catch (Exception ex) {
+            return subStage;
+        }
+    }
+
+    /** Builds the JSON response after a save/schedule call, including any stage movement remark. */
     private String buildScheduleResponse(TbObCGTDetails cgtDetails, CGTDetailsRequestFields mergedObj, String stageMovementRemark) {
         try {
             Map<String, Object> responseMap = new LinkedHashMap<>();
@@ -803,7 +693,7 @@ public class CGTService {
             responseMap.put("groupId", cgtDetails.getGroupId());
             responseMap.put("kendraId", cgtDetails.getKendraId());
             responseMap.put("status", cgtDetails.getStatus());
-            responseMap.put("subStage", cgtDetails.getSubStage());
+            responseMap.put("subStage", parseSubStageForResponse(cgtDetails.getSubStage()));
             responseMap.put("addCGTPayload", mergedObj.getAddCGTPayload());
             responseMap.put("conductCGTPayload", mergedObj.getConductCGTPayload());
             if (stageMovementRemark != null) {
@@ -817,56 +707,33 @@ public class CGTService {
     }
 
     /**
-     * Only called when CGT is being ended (endCGTFlag=true), with {@code applications} already
-     * fetched once by {@link #conductCGT} and shared with {@link #updateCustomerCGTDetails} --
-     * no second query against {@code tb_ob_application_master} happens here. Advances every
-     * eligible member's application to stage 5 (BM Re-Interview) -- but "eligible" excludes
-     * anyone already {@code REJECTED}, anyone still parked in per-member RPC review with
-     * {@code wfstage = RPCQUEUE} (RPC review pending) or {@code wfstage = CRTQUEUE} (Credit
-     * Bureau check failed during RPC review -- "CB Fail"), e.g.:
-     * <pre>
-     *   select * from tb_ob_application_master where wfstage = 'CRTQUEUE' and status = 'CGT'; -- CB Fail during RPC review
-     *   select * from tb_ob_application_master where wfstage = 'RPCQUEUE' and status = 'CGT'; -- RPC review pending
-     * </pre>
-     * A rejected application must never be pulled back into the pipeline, and none of these three
-     * categories may inflate the quorum count. The whole group is held back from advancing (not
-     * just the excluded members) if fewer than {@code cgtMinimumMembers} would be left to actually
-     * move forward -- in that case nothing here is persisted, so the excluded members stay exactly
-     * as they were (RPCQUEUE/CRTQUEUE/REJECTED) for whatever process is meant to resolve them next.
-     * {@code tb_ob_cgt_details}/{@code tb_ob_group} still get marked COMPLETED for the group either
-     * way -- only the application-stage movement is conditional on this check.
-     *
-     * @return a human-readable remark describing which members were excluded (REJECTED/CB_FAIL/
-     *         RPC_QUEUE) and why the group was or wasn't advanced -- {@code null} when every
-     *         member advanced cleanly with no exclusions to report.
+     * Advances eligible members (stage and wfstage both CGT) to BM Re-Interview.
+     * Returns a remark on excluded members, or null if everyone advanced cleanly.
      */
     private String updateApplicationMasterStage(List<TbObApplicationMaster> applications, String userId) {
 
         logger.info("Updating Application Master Stage for all group members.");
 
         if (applications.isEmpty()) {
-            logger.info("No Application Master records found for the given customer IDs.");
+            logger.info("No Application Master records found for the mandatory day's memberLoanDetails.");
             return null;
         }
 
-        List<TbObApplicationMaster> rejectedApplications = new ArrayList<>();
-        List<TbObApplicationMaster> cbFailApplications = new ArrayList<>();
-        List<TbObApplicationMaster> rpcPendingApplications = new ArrayList<>();
+        List<TbObApplicationMaster> notAtCgtStageApplications = new ArrayList<>();
         List<TbObApplicationMaster> eligibleApplications = new ArrayList<>();
 
         for (TbObApplicationMaster application : applications) {
-            if (ApplicationStatus.REJECTED.name().equalsIgnoreCase(application.getStatus())) {
-                rejectedApplications.add(application);
-            } else if (WFStage.CRTQUEUE.name().equalsIgnoreCase(application.getWfStage())) {
-                cbFailApplications.add(application);
-            } else if (WFStage.RPCQUEUE.name().equalsIgnoreCase(application.getWfStage())) {
-                rpcPendingApplications.add(application);
-            } else {
+            if (STAGE_CGT.equalsIgnoreCase(application.getStage())
+                    && WFStage.CGT.name().equalsIgnoreCase(application.getWfStage())) {
                 eligibleApplications.add(application);
+            } else {
+                notAtCgtStageApplications.add(application);
             }
         }
 
-        String exclusionSummary = buildExclusionSummary(rejectedApplications, cbFailApplications, rpcPendingApplications);
+        String exclusionSummary = notAtCgtStageApplications.stream()
+                .map(application -> "Customer " + application.getCustomerId() + " (NOT_AT_CGT_STAGE)")
+                .collect(Collectors.joining(", "));
 
         if (eligibleApplications.size() < cgtMinimumMembers) {
             String remark = "Only " + eligibleApplications.size() + " of " + applications.size()
@@ -879,25 +746,18 @@ public class CGTService {
 
         LocalDateTime now = LocalDateTime.now();
         for (TbObApplicationMaster application : eligibleApplications) {
-            application.setStage("5"); // 5 = BM_REINTERVIEW
-            application.setWfStage(WFStage.BMQUEUE.name()); // 5 = BM
-            application.setVersion(String.valueOf(Integer.parseInt(application.getVersion()) + 1));
-            application.setStatus(ApplicationStatus.BMQUEUE.name());
+            application.setStage("BMQUEUE"); // 5 = BM_REINTERVIEW
+            application.setWfStage("BMQUEUE"); // 5 = BM
+            String ver = application.getVersion() == null ? "0":application.getVersion();
+//            application.setStatus("BMQUEUE");
+            application.setVersion(String.valueOf(Integer.parseInt(ver) + 1));
             application.setUpdatedBy(userId);
             application.setUpdatedTs(now);
         }
 
-        cbFailApplications.forEach(application ->
-                logger.info("Customer Id : {} is CB_FAIL (wfstage=CRTQUEUE) during RPC review; not advancing to BM Reinterview stage.",
-                        application.getCustomerId()));
-
-        rpcPendingApplications.forEach(application ->
-                logger.info("Customer Id : {} is still RPC_QUEUE; not advancing to BM Reinterview stage.",
-                        application.getCustomerId()));
-
-        rejectedApplications.forEach(application ->
-                logger.info("Customer Id : {} is REJECTED; excluded from BM Reinterview stage movement.",
-                        application.getCustomerId()));
+        notAtCgtStageApplications.forEach(application ->
+                logger.info("Customer Id : {} has stage : {}, wfstage : {} (expected both CGT); excluded from BM Reinterview stage movement.",
+                        application.getCustomerId(), application.getStage(), application.getWfStage()));
 
         applicationMasterRepository.saveAll(eligibleApplications);
         logger.info("Application Master Stage updated successfully for {} records.", eligibleApplications.size());
@@ -907,29 +767,15 @@ public class CGTService {
                   + " members advanced to BM Re-Interview. Excluded: " + exclusionSummary + ".";
     }
 
-    /** Formats each excluded member as {@code "Customer <id> (REJECTED|RPC_QUEUE)"}, comma-joined. */
-    private String buildExclusionSummary(List<TbObApplicationMaster> rejectedApplications,
-                                         List<TbObApplicationMaster> cbFailApplications,
-                                         List<TbObApplicationMaster> rpcPendingApplications) {
-
-        List<String> parts = new ArrayList<>();
-        rejectedApplications.forEach(application ->
-                parts.add("Customer " + application.getCustomerId() + " (REJECTED)"));
-        cbFailApplications.forEach(application ->
-                parts.add("Customer " + application.getCustomerId() + " (CB_FAIL)"));
-        rpcPendingApplications.forEach(application ->
-                parts.add("Customer " + application.getCustomerId() + " (RPC_QUEUE)"));
-        return String.join(", ", parts);
+    /** Computes the CGT progress marker: C1/C2/C3 while in progress, or COMPLETED once done. */
+    private String computeCgtStatus(List<CGTDayDetailsRequestFields> allDays, boolean isCompleting) {
+        return isCompleting
+                ? "COMPLETED"
+                : "C" + Math.min(getHighestCGTDay(allDays), cgtMandatoryDays);
     }
 
-    /**
-     * Refreshes {@code tb_ob_group.cgt_status} on every real submission: {@code C1}/{@code C2}/
-     * {@code C3} while days are being conducted (capped at {@code cgtMandatoryDays} -- extra days
-     * beyond that stay at {@code C<cgtMandatoryDays>} until actually completed), or
-     * {@code COMPLETED} once the KM ends CGT. Also stamps {@code last_activity_ts} so the group
-     * doesn't look inactive.
-     */
-    private void updateGroupCgtDetails(CGTDetailsRequestFields requestObj, List<CGTDayDetailsRequestFields> allDays, String userId, boolean endCGT) {
+    /** Updates tb_ob_group's cgt_status, updatedBy, and updatedTs to match this submission. */
+    private void updateGroupCgtDetails(CGTDetailsRequestFields requestObj, String cgtStatus, String userId) {
 
         logger.info("Updating tb_ob_group CGT details for Group Id : {}", requestObj.getGroupId());
 
@@ -937,16 +783,13 @@ public class CGTService {
                 .orElseThrow(() -> new CGTDateValidationException(
                         "Group not found for Group Id : " + requestObj.getGroupId()));
 
-        String cgtStatus = endCGT
-                ? "COMPLETED"
-                : "C" + Math.min(getHighestCGTDay(allDays), cgtMandatoryDays);
-
         group.setCgtStatus(cgtStatus);
         group.setUpdatedBy(userId);
         group.setUpdatedTs(LocalDateTime.now());
         groupRepository.save(group);
 
-        logger.info("Group Id : {} - cgt_status updated to {}.", requestObj.getGroupId(), cgtStatus);
+        logger.info("Group Id : {} - cgt_status updated to {}.",
+                requestObj.getGroupId(), cgtStatus);
     }
 
     /** Highest day number seen across all days in this submission; defaults to 1 if none. */
@@ -959,14 +802,7 @@ public class CGTService {
                 .orElse(1);
     }
 
-    /**
-     * Read-only lookup of a group's recorded CGT progress. When {@code tb_ob_cgt_details} has
-     * nothing saved yet for the group (CGT hasn't actually started), falls back to
-     * {@code tb_ob_application_master} -- see {@link #buildNoCgtDetailsResponse} -- so the caller
-     * still gets back who's waiting to be taken through CGT, instead of just an empty result.
-     * Only when even that fallback finds nothing (no members recorded against the group at all)
-     * is a genuine "no result" response returned.
-     */
+    /** Read-only lookup of a group's recorded CGT progress by group id. */
     public Mono<Response> fetchCgtDayDetails(String groupId, Header header) {
 
         logger.info("Fetch CGT Details API Started.");
@@ -987,10 +823,16 @@ public class CGTService {
                 responseBody.setResponseObj(buildFetchResponse(tbObCGTDetailsOpt.get()));
                 CommonUtils.generateHeaderForSuccess(responseHeader);
             } else {
+                logger.info("No CGT Details found for Group Id : {}.", groupId);
+                CommonUtils.generateHeaderForNoResult(responseHeader);
+
+                // Fallback to tb_ob_application_master disabled for now -- uncomment to restore
+                // returning members currently sitting at CGT status when no tb_ob_cgt_details row exists.
+                /*
                 logger.info("No CGT Details found for Group Id : {} -- falling back to tb_ob_application_master.", groupId);
 
                 List<TbObApplicationMaster> cgtStatusMembers = applicationMasterRepository
-                        .findByGroupIdAndStatus(groupId, ApplicationStatus.CGT.name());
+                        .findByGroupIdAndStatus(groupId, STATUS_CGT);
 
                 if (cgtStatusMembers.isEmpty()) {
                     logger.info("No Application Master records at CGT status either, for Group Id : {}.", groupId);
@@ -999,6 +841,7 @@ public class CGTService {
                     responseBody.setResponseObj(buildNoCgtDetailsResponse(cgtStatusMembers));
                     CommonUtils.generateHeaderForSuccess(responseHeader);
                 }
+                */
             }
 
         } catch (CGTDateValidationException ex) {
@@ -1018,20 +861,7 @@ public class CGTService {
                 .build());
     }
 
-    /**
-     * Builds the fallback response used when {@code tb_ob_cgt_details} has no row yet for the
-     * group -- sourced entirely from {@code tb_ob_application_master} members currently at
-     * {@code status = 'CGT'}, i.e.:
-     * <pre>
-     *   select * from tb_ob_application_master where group_id = ? and status = 'CGT';
-     * </pre>
-     * {@code groupId}/{@code kendraId} are the same for every member of a group, so they're lifted
-     * to the top level once rather than repeated per customer; only what actually varies per
-     * member (applicationId/customerId/customerName/status/wfstage) goes in the {@code customers}
-     * array. {@code status} is 'CGT' for every entry here (that's the query filter), but
-     * {@code wfstage} still varies per member -- e.g. plain 'CGT', or 'RPCQUEUE'/'CRTQUEUE' for
-     * someone parked in per-member RPC review -- so both are returned rather than just one.
-     */
+    /** Builds the fallback response from tb_ob_application_master when no CGT details row exists yet. */
     private String buildNoCgtDetailsResponse(List<TbObApplicationMaster> cgtStatusMembers) {
         try {
             List<Map<String, Object>> customers = new ArrayList<>();
@@ -1057,15 +887,8 @@ public class CGTService {
         }
     }
 
-    /**
-     * Builds the JSON response for a fetch, after flagging any day whose captured
-     * {@code memberDetails} count doesn't match the group's current (non-rejected) member count --
-     * see {@link #flagAttendanceMismatch} for why that gap can happen and why it's flagged rather
-     * than silently patched. Also surfaces which of those members are missing from CGT because
-     * they're stuck in per-member RPC review -- see {@link #buildRpcReviewPendingMembers}.
-     */
+    /** Builds the JSON response for a fetch, flagging any attendance count mismatch per day. */
     private String buildFetchResponse(TbObCGTDetails cgtDetails) {
-
         try {
             List<TbObApplicationMaster> groupMembers = applicationMasterRepository
                     .findByGroupIdAndStatusNot(cgtDetails.getGroupId(), ApplicationStatus.REJECTED.name());
@@ -1074,10 +897,18 @@ public class CGTService {
             flagAttendanceMismatch(cgtDetails.getConductCGTPayload(), groupMembers);
 
             Map<String, Object> responseMap = objectMapper.convertValue(cgtDetails, new TypeReference<Map<String, Object>>() {});
+
+            responseMap.put("subStage", parseSubStageForResponse(cgtDetails.getSubStage()));
+
+            // RPCQUEUE/CRTQUEUE pending-member details disabled for now -- uncomment to restore
+            // surfacing which members are stuck in per-member RPC review (CB_FAIL/RPC_PENDING).
+            /*
             List<Map<String, Object>> rpcReviewPendingMembers = buildRpcReviewPendingMembers(groupMembers);
             if (!rpcReviewPendingMembers.isEmpty()) {
                 responseMap.put("rpcReviewPendingMembers", rpcReviewPendingMembers);
             }
+            */
+
             return objectMapper.writeValueAsString(responseMap);
         } catch (Exception ex) {
             logger.error("Error while preparing fetch response.", ex);
@@ -1085,19 +916,7 @@ public class CGTService {
         }
     }
 
-    /**
-     * Identifies group members who are missing from CGT's own {@code memberDetails} because
-     * they're parked in per-member RPC review rather than off {@code tb_ob_cgt_details} at all --
-     * looked up purely off {@code tb_ob_application_master.wfstage}, mirroring the same two
-     * categories {@link #updateApplicationMasterStage} excludes from stage movement:
-     * <pre>
-     *   select * from tb_ob_application_master where wfstage = 'CRTQUEUE' and status = 'CGT'; -- CB Fail during RPC review
-     *   select * from tb_ob_application_master where wfstage = 'RPCQUEUE' and status = 'CGT'; -- RPC review pending
-     * </pre>
-     * Returns just enough to identify each member (customerId/customerName/applicationId) plus why
-     * they're missing, so the caller doesn't need a separate query against
-     * {@code tb_ob_application_master} to explain the gap flagged by {@link #flagAttendanceMismatch}.
-     */
+    /** Identifies group members missing from CGT because they're stuck in per-member RPC review. */
     private List<Map<String, Object>> buildRpcReviewPendingMembers(List<TbObApplicationMaster> groupMembers) {
 
         List<Map<String, Object>> pendingMembers = new ArrayList<>();
@@ -1125,17 +944,8 @@ public class CGTService {
     }
 
     /**
-     * {@code tb_ob_cgt_details} only stores whichever members the KM actually captured
-     * attendance for on a given day. If a member joined the group later (or was skipped), that
-     * day's {@code memberDetails} count won't match the group's current (non-rejected) member
-     * count. Rather than fabricating a {@code present=null} row for whoever's missing -- which
-     * would misrepresent something that was never actually recorded -- each affected day just
-     * gets an {@code attendanceMismatch} remark added, plus a {@code missingCandidates} list
-     * (customerId/customerName, from {@code groupMembers}) naming exactly who wasn't captured, so
-     * the caller knows the counts disagree, who's responsible for the gap, and can decide what to
-     * do about it. A member already captured with {@code present=null} (genuinely marked but not
-     * yet confirmed present/absent) is left exactly as-is; this only reacts to members missing
-     * entirely. This only affects the response -- nothing is written back to {@code tb_ob_cgt_details}.
+     * Flags a day if its captured member count doesn't match the group's current member count.
+     * Adds a missingCandidates list rather than guessing attendance; nothing is persisted here.
      */
     @SuppressWarnings("unchecked")
     private void flagAttendanceMismatch(List<Object> dayPayloads, List<TbObApplicationMaster> groupMembers) {

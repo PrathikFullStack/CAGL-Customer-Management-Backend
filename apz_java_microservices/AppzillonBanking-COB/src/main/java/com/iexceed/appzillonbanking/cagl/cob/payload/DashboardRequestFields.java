@@ -31,6 +31,11 @@ public class DashboardRequestFields {
     @JsonProperty("kendraIds")
     private List<String> kendraIds;
 
+    // PENDING_FOR_CGT tile count: groupIds to check for cgtStatus="PENDING" directly, in place of
+    // deriving groups from kendraIds.
+    @JsonProperty("groupIds")
+    private List<String> groupIds;
+
     @JsonProperty("branchIds")
     private List<String> branchIds;
 }

@@ -16,7 +16,8 @@ public interface TbObDMSSessionDataRepo extends JpaRepository<TbObDMSSessionData
     @Query(value =
             "SELECT * " +
                     "FROM tb_ob_dms_session_data " +
-                    "WHERE DATE(date) = DATE(:date)",
+                    "WHERE DATE(date) = DATE(:date) " +
+                    "ORDER BY date DESC LIMIT 1",
             nativeQuery = true)
     Optional<TbObDMSSessionDataEntity> getSessionData(
             @Param("date") Date date);

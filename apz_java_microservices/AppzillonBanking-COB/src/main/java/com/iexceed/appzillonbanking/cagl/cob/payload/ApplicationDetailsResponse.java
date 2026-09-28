@@ -20,7 +20,8 @@ public record ApplicationDetailsResponse(
 //        List<AuditEventDto> auditSnapshot,
 //        LockInfoDto lockInfo,
         AdditionalApplicationData applicationData,
-        List<AddressDetailsDto> addresses
+        List<AddressDetailsDto> addresses,
+        BMReInterviewDetailsDto bmReInterviewDetails
 ) {
     // Canonical constructor enforces immutability + null-safety for collections,
     // regardless of what the builder or caller passes in.

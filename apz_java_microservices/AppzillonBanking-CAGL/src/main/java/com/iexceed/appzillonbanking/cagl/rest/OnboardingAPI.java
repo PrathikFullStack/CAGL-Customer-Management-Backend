@@ -2,6 +2,8 @@ package com.iexceed.appzillonbanking.cagl.rest;
 
 import com.iexceed.appzillonbanking.cagl.payload.CreateLeadRequest;
 import com.iexceed.appzillonbanking.cagl.payload.CreateLeadRequestWrapper;
+import com.iexceed.appzillonbanking.cagl.payload.FetchLeadCountRequest;
+import com.iexceed.appzillonbanking.cagl.payload.FetchLeadCountRequestWrappper;
 import com.iexceed.appzillonbanking.cagl.service.OnboardingService;
 import com.iexceed.appzillonbanking.core.payload.Header;
 import com.iexceed.appzillonbanking.core.payload.Response;
@@ -51,4 +53,28 @@ public class OnboardingAPI {
         logger.debug("createLead response :: {}", response);
         return new ResponseEntity<>(responseWrapper, HttpStatus.OK);
     }
+
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "AppzillonBanking API reachable"),
+            @ApiResponse(responseCode = "408", description = "Service Timed Out"),
+            @ApiResponse(responseCode = "500", description = "Internal Server Error"),
+            @ApiResponse(responseCode = "404", description = "AppzillonBanking not reachable")
+    })
+    @Operation(summary = "Fetch Lead", description = "API to fetch lead count in CDH MySQL database")
+    @PostMapping(value = "/fetchLeadCount", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ResponseWrapper> fetchLeadCount(
+            @RequestBody FetchLeadCountRequestWrappper requestWrapper,
+            @RequestHeader String appId, @RequestHeader String interfaceId,
+            @RequestHeader String userId, @RequestHeader String masterTxnRefNo, @RequestHeader String deviceId) {
+
+        logger.debug("fetchLeadCount request :: {}", requestWrapper);
+        ResponseWrapper responseWrapper = new ResponseWrapper();
+        Header header = CommonUtils.obtainHeader(appId, interfaceId, userId, masterTxnRefNo, deviceId);
+        logger.debug("fetchLeadCount Header :: {}", header);
+        Response response = onboardingService.fetchLeadCount(requestWrapper, header);
+        responseWrapper.setApiResponse(response);
+        logger.debug("fetchLeadCount response :: {}", response);
+        return new ResponseEntity<>(responseWrapper, HttpStatus.OK);
+    }
+
 }

@@ -72,13 +72,15 @@ import lombok.extern.slf4j.Slf4j;
 public class ApplicationWorkflowService {
 
 	private final TbObApplicationMasterRepository applicationMasterRepository;
+
+	private final AuditService auditService;
 	@Autowired
 	CustOnboardWorkflowProcess Custprocess;
 	@PersistenceContext
 	private EntityManager entityManager;
 
 	private static final List<String> EXCEL_EXPECTED_HEADERS = Arrays.asList("APPLICATION ID", "APPROVED/REJECTED");
-	
+
 	private record NextStageDetails(String nextStageId, String nextWorkflowStatus) {}
 
 	private static final int STATUS_CODE_SUCCESS = 0;
@@ -165,20 +167,20 @@ public class ApplicationWorkflowService {
 
 			log.info("updateStage completed: total={}, success={}, failed={}", totalCount, successCount, failedCount);
 
-			if (failedCount == 0) {
-				return buildSuccessResponse(
-						"Stage updated successfully for all " + totalCount + " application(s)", resultData);
-			} else if (successCount == 0) {
-				return buildErrorResponse(
-						"Stage update failed for all " + totalCount + " application(s)", resultData);
-			} else {
-				return buildPartialSuccessResponse("Stage updated for " + successCount + " of " + totalCount
-						+ " application(s); " + failedCount + " failed", resultData);
+			if (failedCount > 0) {
+				String errorMsg = "Stage update failed for " + failedCount + " of " + totalCount
+						+ " application(s). All changes have been rolled back. Please try again.";
+				throw new RuntimeException(errorMsg);
 			}
+			return buildSuccessResponse(
+					"Stage updated successfully for all " + totalCount + " application(s)", resultData);
 
+		} catch (RuntimeException e) {
+			log.error("updateStage rolling back: {}", e.getMessage());
+			throw e;  // MUST propagate out so @Transactional triggers rollback
 		} catch (Exception e) {
 			log.error("updateStage failed with an unexpected error", e);
-			return buildErrorResponse("Unexpected error while updating stage: " + e.getMessage());
+			throw new RuntimeException("Unexpected error while updating stage: " + e.getMessage(), e);
 		} finally {
 			log.info("Exiting updateStage(request)");
 		}
@@ -189,7 +191,7 @@ public class ApplicationWorkflowService {
 	 * and returns the parsed responseObj as a JSONObject.
 	 */
 	private JSONObject invokeWorkflowProcess(PopulateapplnWFRequest reqFields, WorkFlowDetails workflow,
-			ApplicationList applnRec,Header header) {
+											 ApplicationList applnRec,Header header) {
 		log.info("Entering invokeWorkflowProcess() for applicationId={}", applnRec.getApplicationId());
 
 		WorkflowRequestFields processFields = new WorkflowRequestFields();
@@ -243,9 +245,12 @@ public class ApplicationWorkflowService {
 	 * Updates tb_ob_application_master to the resolved next stage/status.
 	 */
 	private void updateApplicationMaster(TbObApplicationMaster master, ApplicationList applnRec,
-			PopulateapplnWFRequestFields reqFields, WorkFlowDetails workflow, String nextStageId,
-			String nextWorkflowStatus) {
+										 PopulateapplnWFRequestFields reqFields, WorkFlowDetails workflow, String nextStageId,
+										 String nextWorkflowStatus) {
 		log.info("Entering updateApplicationMaster() for applicationId={}", applnRec.getApplicationId());
+
+		String fromStage = master.getStage();
+		String fromWfStage = master.getWfStage();
 
 		master.setStage(nextStageId);
 		master.setRemarks(workflow.getRemarks());
@@ -256,6 +261,19 @@ public class ApplicationWorkflowService {
 		master.setWfStage(nextWorkflowStatus);
 
 		applicationMasterRepository.save(master);
+
+		Map<String, Object> transitionPayload = new HashMap<>();
+		transitionPayload.put("workflowId", workflow.getWorkflowId());
+		transitionPayload.put("action", workflow.getAction());
+		transitionPayload.put("fromStage", fromStage);
+		transitionPayload.put("fromWfStage", fromWfStage);
+		transitionPayload.put("toStage", nextStageId);
+		transitionPayload.put("toWfStage", nextWorkflowStatus);
+		transitionPayload.put("remarks", workflow.getRemarks());
+
+		auditService.saveStageTransitionAudit(master, reqFields.getCreatedBy(), reqFields.getUserName(),
+				reqFields.getUserRole(), reqFields.getAppId(), String.valueOf(applnRec.getVersionNum()),
+				nextStageId, nextWorkflowStatus, transitionPayload);
 
 		log.info("Exiting updateApplicationMaster() for applicationId={}", applnRec.getApplicationId());
 	}
@@ -328,7 +346,7 @@ public class ApplicationWorkflowService {
 		BulkUploadRequestFields requestObj = apiRequest.getRequestObj();
 
 		try (InputStream inputStream = new ByteArrayInputStream(decodedBytes);
-				Workbook workbook = new XSSFWorkbook(inputStream)) {
+			 Workbook workbook = new XSSFWorkbook(inputStream)) {
 
 			Sheet sheet = workbook.getSheetAt(0);
 			Iterator<Row> rowIterator = sheet.iterator();
@@ -401,7 +419,7 @@ public class ApplicationWorkflowService {
 	}
 
 	private PopulateapplnWFRequest buildUpdateStageRequest(TbObApplicationMaster master, String decision,
-			String remarks, BulkUploadRequest apiRequest) {
+														   String remarks, BulkUploadRequest apiRequest) {
 		log.info("Entering buildUpdateStageRequest() for applicationId={}", master.getApplicationId());
 
 		BulkUploadRequestFields requestObj = apiRequest.getRequestObj();
@@ -420,16 +438,14 @@ public class ApplicationWorkflowService {
 		fields.setWorkflow(workflow);
 		fields.setCreatedBy(requestObj.getUserId());
 		fields.setUserRole(requestObj.getUserRole());
-		fields.setAppVersion(requestObj.getAppVersion());
 		fields.setUserName(requestObj.getUserName());
-		fields.setRemarks(remarks);
 		fields.setApplicationDetailList(Collections.singletonList(applicationList));
 
 		PopulateapplnWFRequest request = new PopulateapplnWFRequest();
 		request.setAppId(apiRequest.getAppId());
 		request.setInterfaceName(apiRequest.getInterfaceName());
 		request.setUserId(apiRequest.getUserId());
-		
+
 		request.setRequestObj(fields);
 
 		log.info("Exiting buildUpdateStageRequest() for applicationId={}", master.getApplicationId());
@@ -463,32 +479,32 @@ public class ApplicationWorkflowService {
 			value = "";
 		} else {
 			value = switch (cell.getCellType()) {
-			case STRING -> cell.getStringCellValue().trim();
-			case NUMERIC -> {
-				if (DateUtil.isCellDateFormatted(cell)) {
-					yield new SimpleDateFormat("yyyy-MM-dd").format(cell.getDateCellValue());
-				}
-				BigDecimal cellValue = BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros();
-				yield cellValue.scale() > 0 ? cellValue.setScale(2, RoundingMode.HALF_UP).toPlainString()
-						: cellValue.toPlainString();
-			}
-			case BOOLEAN -> String.valueOf(cell.getBooleanCellValue()).trim();
-			case FORMULA -> {
-				FormulaEvaluator evaluator = cell.getSheet().getWorkbook().getCreationHelper()
-						.createFormulaEvaluator();
-				CellValue evaluatedValue = evaluator.evaluate(cell);
-				yield switch (evaluatedValue.getCellType()) {
-				case STRING -> evaluatedValue.getStringValue().trim();
+				case STRING -> cell.getStringCellValue().trim();
 				case NUMERIC -> {
-					BigDecimal val = BigDecimal.valueOf(evaluatedValue.getNumberValue()).stripTrailingZeros();
-					yield val.scale() > 0 ? val.setScale(2, RoundingMode.HALF_UP).toPlainString()
-							: val.toPlainString();
+					if (DateUtil.isCellDateFormatted(cell)) {
+						yield new SimpleDateFormat("yyyy-MM-dd").format(cell.getDateCellValue());
+					}
+					BigDecimal cellValue = BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros();
+					yield cellValue.scale() > 0 ? cellValue.setScale(2, RoundingMode.HALF_UP).toPlainString()
+							: cellValue.toPlainString();
 				}
-				case BOOLEAN -> String.valueOf(evaluatedValue.getBooleanValue()).trim();
+				case BOOLEAN -> String.valueOf(cell.getBooleanCellValue()).trim();
+				case FORMULA -> {
+					FormulaEvaluator evaluator = cell.getSheet().getWorkbook().getCreationHelper()
+							.createFormulaEvaluator();
+					CellValue evaluatedValue = evaluator.evaluate(cell);
+					yield switch (evaluatedValue.getCellType()) {
+						case STRING -> evaluatedValue.getStringValue().trim();
+						case NUMERIC -> {
+							BigDecimal val = BigDecimal.valueOf(evaluatedValue.getNumberValue()).stripTrailingZeros();
+							yield val.scale() > 0 ? val.setScale(2, RoundingMode.HALF_UP).toPlainString()
+									: val.toPlainString();
+						}
+						case BOOLEAN -> String.valueOf(evaluatedValue.getBooleanValue()).trim();
+						default -> "";
+					};
+				}
 				default -> "";
-				};
-			}
-			default -> "";
 			};
 		}
 
@@ -537,11 +553,11 @@ public class ApplicationWorkflowService {
 		return buildResponse(STATUS_CODE_PARTIAL_SUCCESS, message, data);
 	}
 
-	private Response buildErrorResponse(String message) {
+	public Response buildErrorResponse(String message) {
 		return buildErrorResponse(message, null);
 	}
 
-	private Response buildErrorResponse(String message, Map<String, Object> data) {
+	public Response buildErrorResponse(String message, Map<String, Object> data) {
 		return buildResponse(STATUS_CODE_FAILURE, message, data);
 	}
 
@@ -590,7 +606,7 @@ public class ApplicationWorkflowService {
 		log.debug("Exiting extractResponseMessage() with message={}", message);
 		return message;
 	}
-	
+
 	private NextStageDetails extractNextStageDetails(JSONObject processResult) {
 		log.info("Entering extractNextStageDetails()");
 
@@ -603,7 +619,7 @@ public class ApplicationWorkflowService {
 				nextWorkflowStatus);
 		return new NextStageDetails(nextStageId, nextWorkflowStatus);
 	}
-	
+
 	private String resolveWorkflowAction(String decision, String channelType, String userRole) {
 		log.info("Entering resolveWorkflowAction() with decision={}, channelType={}", decision, channelType);
 

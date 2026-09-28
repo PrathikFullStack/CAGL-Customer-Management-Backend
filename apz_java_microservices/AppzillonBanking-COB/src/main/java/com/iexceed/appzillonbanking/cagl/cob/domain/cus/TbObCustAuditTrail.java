@@ -3,13 +3,9 @@ package com.iexceed.appzillonbanking.cagl.cob.domain.cus;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
-import java.util.Map;
 
 @Entity
 @Table(name = "tb_ob_cust_audit_trail")
@@ -21,10 +17,9 @@ import java.util.Map;
 public class TbObCustAuditTrail {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY) // matches Postgres SERIAL/BIGSERIAL/GENERATED AS IDENTITY
     @Column(name = "id")
     @JsonProperty("id")
-    private Long id;
+    private String id;
 
     @Column(name = "app_id")
     @JsonProperty("appId")
@@ -102,39 +97,33 @@ public class TbObCustAuditTrail {
     @JsonProperty("repaymentFrequency")
     private String repaymentFrequency;
 
-    @Column(name = "payload", columnDefinition = "jsonb")
+    @Column(name = "payload")
     @JsonProperty("payload")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> payload;
+    private String payload;
 
-    @Column(name = "editeddetails", columnDefinition = "jsonb")
+    @Column(name = "editeddetails")
     @JsonProperty("editedDetails")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> editedDetails;
+    private String editedDetails;
 
     @Column(name = "isedited")
     @JsonProperty("isEdited")
-    private Boolean isEdited;
+    private String isEdited;
 
-    @Column(name = "add_info1", columnDefinition = "jsonb")
+    @Column(name = "add_info1")
     @JsonProperty("addInfo1")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> addInfo1;
+    private String addInfo1;
 
-    @Column(name = "add_info2", columnDefinition = "jsonb")
+    @Column(name = "add_info2")
     @JsonProperty("addInfo2")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> addInfo2;
+    private String addInfo2;
 
-    @Column(name = "add_info3", columnDefinition = "jsonb")
+    @Column(name = "add_info3")
     @JsonProperty("addInfo3")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> addInfo3;
+    private String addInfo3;
 
-    @Column(name = "add_info4", columnDefinition = "jsonb")
+    @Column(name = "add_info4")
     @JsonProperty("addInfo4")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> addInfo4;
+    private String addInfo4;
 
     @Column(name = "app_version")
     @JsonProperty("appVersion")
