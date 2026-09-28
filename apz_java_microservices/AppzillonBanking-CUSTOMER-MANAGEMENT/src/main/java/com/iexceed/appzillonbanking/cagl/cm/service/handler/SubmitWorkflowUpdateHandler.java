@@ -5,11 +5,11 @@ import java.util.Optional;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.iexceed.appzillonbanking.cagl.cm.client.CbsSyncClient;
 import com.iexceed.appzillonbanking.cagl.cm.entity.primary.CmApplicationMasterEntity;
 import com.iexceed.appzillonbanking.cagl.cm.payload.common.RequestWrapper.RequestHeader;
 import com.iexceed.appzillonbanking.cagl.cm.payload.update.CustomerUpdateRequest;
 import com.iexceed.appzillonbanking.cagl.cm.payload.update.UpdateResponseDto;
+import com.iexceed.appzillonbanking.cagl.cm.payload.workflow.WorkflowTransitionRequest;
 import com.iexceed.appzillonbanking.cagl.cm.repository.primary.CmApplicationMasterRepository;
 import com.iexceed.appzillonbanking.cagl.cm.service.RecordLockService;
 import com.iexceed.appzillonbanking.cagl.cm.service.WorkflowEngineService;
@@ -20,17 +20,14 @@ public class SubmitWorkflowUpdateHandler implements UpdateHandler {
     private final CmApplicationMasterRepository appRepo;
     private final WorkflowEngineService workflowEngine;
     private final RecordLockService lockService;
-    private final CbsSyncClient cbsClient;
 
     public SubmitWorkflowUpdateHandler(
             CmApplicationMasterRepository appRepo,
             WorkflowEngineService workflowEngine,
-            RecordLockService lockService,
-            CbsSyncClient cbsClient) {
+            RecordLockService lockService) {
         this.appRepo = appRepo;
         this.workflowEngine = workflowEngine;
         this.lockService = lockService;
-        this.cbsClient = cbsClient;
     }
 
     @Override
@@ -48,28 +45,32 @@ public class SubmitWorkflowUpdateHandler implements UpdateHandler {
                     .customerId(request.getCustomerId())
                     .section(getSectionName())
                     .status("FAILED")
+                    .remarks("Application not found")
                     .build();
         }
 
         CmApplicationMasterEntity app = appOpt.get();
-        String currentStage = app.getStage() != null ? app.getStage() : "KM_DRAFT";
-        String action = "SUBMIT";
+        String currentStage = app.getStage() != null ? app.getStage() : "DRAFT";
 
-        // Transition workflow state
-        String nextStage = workflowEngine.transitionWorkflow("APZ_CM", app.getApplicationId(),
-                Integer.parseInt(app.getVersion()), currentStage, action,
-                header != null ? header.getUserId() : "SYSTEM",
-                header != null ? header.getUserId() : "SYSTEM",
-                header != null ? header.getUserRole() : "KM",
-                request.getRemarks());
+        boolean isKycEdited = request.getUpdatePayload() != null &&
+                (request.getUpdatePayload().containsKey("kycType") ||
+                 request.getUpdatePayload().containsKey("kycDocId") ||
+                 request.getUpdatePayload().containsKey("primaryKycId") ||
+                 request.getUpdatePayload().containsKey("primaryKycType") ||
+                 request.getUpdatePayload().containsKey("dob"));
 
-        app.setStage(nextStage);
-        appRepo.save(app);
+        WorkflowTransitionRequest transitionReq = WorkflowTransitionRequest.builder()
+                .appId("APZCBO")
+                .applicationId(app.getApplicationId())
+                .customerId(app.getCustomerId())
+                .currentStage(currentStage)
+                .action("SUBMIT")
+                .initiatorRole(header != null ? header.getUserRole() : "KM")
+                .isKycEdited(isKycEdited)
+                .remarks(request.getRemarks())
+                .build();
 
-        // If auto-approved (STP), push to T24 Core Banking
-        if ("STP_APPROVED".equalsIgnoreCase(nextStage) || "COMPLETED".equalsIgnoreCase(nextStage)) {
-            cbsClient.syncToT24(app.getCustomerId(), request.getUpdatePayload());
-        }
+        String nextStage = workflowEngine.transitionWorkflow(transitionReq, header);
 
         // Release lock
         lockService.releaseLock(app.getApplicationId(), header != null ? header.getUserId() : "SYSTEM");
@@ -80,6 +81,7 @@ public class SubmitWorkflowUpdateHandler implements UpdateHandler {
                 .section(getSectionName())
                 .status("SUCCESS")
                 .workflowStatus(nextStage)
+                .remarks("Request submitted successfully to stage: " + nextStage)
                 .build();
     }
 }

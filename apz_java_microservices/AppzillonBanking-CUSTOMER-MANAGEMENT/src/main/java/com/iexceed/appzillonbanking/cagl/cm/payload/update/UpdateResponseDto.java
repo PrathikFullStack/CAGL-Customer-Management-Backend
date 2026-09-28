@@ -18,6 +18,7 @@ public class UpdateResponseDto {
     private String status; // SUCCESS, PENDING_VERIFICATION, FAILED
     private String workflowStatus; // STP_APPROVED, PENDING_BM_APPROVAL, PENDING_RPC_CHECKER
     private String nextRole;
+    private String remarks;
     private List<String> validationErrors;
     private Map<String, Object> verificationDetails; // Penny drop response, OCR response, Fuzzy match score
 }

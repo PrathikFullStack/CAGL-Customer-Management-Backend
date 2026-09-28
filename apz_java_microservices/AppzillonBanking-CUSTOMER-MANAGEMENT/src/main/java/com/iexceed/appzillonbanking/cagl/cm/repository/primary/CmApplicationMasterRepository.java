@@ -23,6 +23,10 @@ public interface CmApplicationMasterRepository extends JpaRepository<CmApplicati
 
     List<CmApplicationMasterEntity> findByStageAndStatus(String stage, String status);
 
+    List<CmApplicationMasterEntity> findByStage(String stage);
+
+    List<CmApplicationMasterEntity> findByStageIn(List<String> stages);
+
     @Query("SELECT a FROM CmApplicationMasterEntity a WHERE a.customerName LIKE %:search% OR a.mobileNumber LIKE %:search% OR a.customerId LIKE %:search%")
     List<CmApplicationMasterEntity> searchByKeyword(@Param("search") String search);
 }

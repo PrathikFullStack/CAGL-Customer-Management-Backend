@@ -18,6 +18,7 @@ com\iexceed\appzillonbanking\cagl\cm\entity\primary\CmWorkflowDefinitionPK.class
 com\iexceed\appzillonbanking\cagl\cm\entity\primary\CmFamilyMemberEntity$CmFamilyMemberEntityBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\entity\primary\CmDocumentEntity$CmDocumentEntityBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\repository\primary\CmWorkflowDefinitionRepository.class
+com\iexceed\appzillonbanking\cagl\cm\payload\workflow\WorkflowHistoryDto.class
 com\iexceed\appzillonbanking\cagl\cm\payload\update\CustomerUpdateRequest.class
 com\iexceed\appzillonbanking\cagl\cm\repository\cdh\GkUnifiedDataRepository.class
 com\iexceed\appzillonbanking\cagl\cm\repository\primary\CmAddressRepository.class
@@ -38,11 +39,13 @@ com\iexceed\appzillonbanking\cagl\cm\payload\profile\IncomeAssessmentCardDto.cla
 com\iexceed\appzillonbanking\cagl\cm\rest\CustomerUpdateRestController.class
 com\iexceed\appzillonbanking\cagl\cm\payload\profile\FamilyDetailsCardDto$NomineeDetailDto$NomineeDetailDtoBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\payload\profile\IncomeAssessmentCardDto$IncomeAssessmentCardDtoBuilder.class
+com\iexceed\appzillonbanking\cagl\cm\payload\workflow\WorkflowHistoryDto$WorkflowHistoryDtoBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\payload\profile\ActiveLoansCardDto$EligibleProductDto$EligibleProductDtoBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\payload\profile\ProfileHeaderCardDto$ProfileHeaderCardDtoBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\entity\cdh\GkUnifiedDataEntity.class
 com\iexceed\appzillonbanking\cagl\cm\repository\primary\CmApplnWorkflowRepository.class
 com\iexceed\appzillonbanking\cagl\cm\repository\primary\CmWorkflowMasterRepository.class
+com\iexceed\appzillonbanking\cagl\cm\payload\workflow\WorkflowQueueItemDto$WorkflowQueueItemDtoBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\service\handler\PersonalDetailsUpdateHandler.class
 com\iexceed\appzillonbanking\cagl\cm\payload\common\RequestWrapper$RequestWrapperBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\payload\profile\AddressCardDto$AddressItemDto$AddressItemDtoBuilder.class
@@ -96,6 +99,7 @@ com\iexceed\appzillonbanking\cagl\cm\entity\primary\CmWorkflowMasterEntity$CmWor
 com\iexceed\appzillonbanking\cagl\cm\AppzillonBankingCustomerManagementApplication.class
 com\iexceed\appzillonbanking\cagl\cm\payload\profile\RecentAuditChangeDto$RecentAuditChangeDtoBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\entity\primary\CmConfigurableDataEntity$CmConfigurableDataEntityBuilder.class
+com\iexceed\appzillonbanking\cagl\cm\payload\workflow\WorkflowTransitionRequest.class
 com\iexceed\appzillonbanking\cagl\cm\payload\profile\ActiveLoansCardDto$LoanItemDto.class
 com\iexceed\appzillonbanking\cagl\cm\rest\WorkflowRestController.class
 com\iexceed\appzillonbanking\cagl\cm\payload\update\CustomerUpdateRequest$CustomerUpdateRequestBuilder.class
@@ -104,9 +108,11 @@ com\iexceed\appzillonbanking\cagl\cm\rest\CustomerSearchRestController.class
 com\iexceed\appzillonbanking\cagl\cm\payload\profile\FamilyDetailsCardDto$NomineeDetailDto.class
 com\iexceed\appzillonbanking\cagl\cm\entity\primary\CmAddressEntity$CmAddressEntityBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\payload\profile\AddressCardDto$AddressCardDtoBuilder.class
+com\iexceed\appzillonbanking\cagl\cm\payload\workflow\WorkflowQueueItemDto.class
 com\iexceed\appzillonbanking\cagl\cm\payload\search\CustomerSearchResultDto$CustomerSearchResultDtoBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\payload\search\CustomerSearchResultDto.class
 com\iexceed\appzillonbanking\cagl\cm\service\CdhIngestionService.class
+com\iexceed\appzillonbanking\cagl\cm\payload\workflow\WorkflowTransitionRequest$WorkflowTransitionRequestBuilder.class
 com\iexceed\appzillonbanking\cagl\cm\payload\profile\ActiveLoansCardDto.class
 com\iexceed\appzillonbanking\cagl\cm\entity\primary\CmWorkflowMasterPK.class
 com\iexceed\appzillonbanking\cagl\cm\entity\primary\CmConfigurableDataPK.class
