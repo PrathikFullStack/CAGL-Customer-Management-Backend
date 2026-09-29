@@ -12,9 +12,9 @@
 	</parent>
 
 	<groupId>com.iexceed.appzillonbanking.cagl</groupId>
-	<artifactId>AppzillonBanking-CUSTOMER-MANAGEMENT</artifactId>
+	<artifactId>AppzillonBanking-CM</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>AppzillonBanking-CUSTOMER-MANAGEMENT</name>
+	<name>AppzillonBanking-CM</name>
 	<description>Standalone Customer Management Microservice for CAGL Maitri</description>
 
 	<properties>
@@ -95,7 +95,7 @@
 	</dependencies>
 
 	<build>
-		<finalName>appzillonbanking-customermanagement</finalName>
+		<finalName>appzillonbankingcm</finalName>
 		<plugins>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
