@@ -6,12 +6,6 @@ import com.iexceed.appzillonbanking.cagl.cm.payload.profile.CustomerProfileRespo
 
 public interface CustomerProfileService {
 
-    /**
-     * Loads full 360-degree consolidated profile response DTO for UI screens
-     *
-     * @param customerOrAppId Customer ID or Application ID
-     * @param userId          Logged-in user ID
-     * @return Full customer profile DTO
-     */
+
     Optional<CustomerProfileResponseDto> getCustomerProfile(String customerOrAppId, String userId);
 }
