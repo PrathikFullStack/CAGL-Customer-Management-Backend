@@ -21,6 +21,9 @@ public interface CmRecordLockRepository extends JpaRepository<CmRecordLockEntity
     @Query("SELECT r FROM CmRecordLockEntity r WHERE r.applicationId = :appId AND r.status = 'ACTIVE' AND r.lockExpiryTs > :now")
     Optional<CmRecordLockEntity> findActiveLock(@Param("appId") String appId, @Param("now") LocalDateTime now);
 
+    @Query("SELECT r FROM CmRecordLockEntity r WHERE r.status = 'ACTIVE' AND r.lockExpiryTs > :now")
+    List<CmRecordLockEntity> findAllActiveLocks(@Param("now") LocalDateTime now);
+
     @Modifying
     @Transactional
     @Query("UPDATE CmRecordLockEntity r SET r.status = 'EXPIRED' WHERE r.status = 'ACTIVE' AND r.lockExpiryTs <= :now")

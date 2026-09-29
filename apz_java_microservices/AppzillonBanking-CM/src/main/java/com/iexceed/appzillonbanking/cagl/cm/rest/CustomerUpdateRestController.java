@@ -18,8 +18,13 @@ import com.iexceed.appzillonbanking.cagl.cm.payload.update.UpdateResponseDto;
 import com.iexceed.appzillonbanking.cagl.cm.service.handler.UpdateHandler;
 import com.iexceed.appzillonbanking.cagl.cm.service.handler.UpdateHandlerRegistry;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 @RestController
 @RequestMapping("/api/v1/cm/update")
+@Tag(name = "4. Customer Section Updates", description = "Endpoints for modular data modifications (KYC, Location, Family, Bank, Income, Additional Details)")
 public class CustomerUpdateRestController {
 
     private static final Logger logger = LogManager.getLogger(CustomerUpdateRestController.class);
@@ -31,7 +36,9 @@ public class CustomerUpdateRestController {
     }
 
     @PostMapping("/{section}")
+    @Operation(summary = "Update Specific Customer Section", description = "Executes section update for: kyc, location, family, bank, income, or additional details")
     public ResponseEntity<ResponseWrapper<UpdateResponseDto>> updateSection(
+            @Parameter(description = "Section to update (kyc | location | family | bank | income | additional)", required = true)
             @PathVariable("section") String section,
             @RequestBody RequestWrapper<CustomerUpdateRequest> request) {
         logger.info("Handling section update for Section: {}, Customer ID: {}",
