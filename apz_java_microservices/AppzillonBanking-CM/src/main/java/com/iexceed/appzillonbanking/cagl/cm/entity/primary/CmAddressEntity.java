@@ -8,12 +8,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "tb_cm_address")
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -30,10 +32,10 @@ public class CmAddressEntity {
     private String applicationId;
 
     @Column(name = "address_type", length = 1, nullable = false)
-    private String addressType; // 'P' = Permanent, 'C' = Communication
+    private String addressType;
 
     @Column(name = "comm_same_as_perm", length = 1)
-    private String commSameAsPerm; // 'Y' / 'N'
+    private String commSameAsPerm;
 
     @Column(name = "addr_payload", columnDefinition = "jsonb", nullable = false)
     private String addrPayload;

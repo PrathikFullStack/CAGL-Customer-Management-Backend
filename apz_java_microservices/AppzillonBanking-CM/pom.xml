@@ -87,13 +87,7 @@
 		</dependency>
 
 		<!-- Image thumbnailator -->
-		<dependency>
-			<groupId>net.coobird</groupId>
-			<artifactId>thumbnailator</artifactId>
-			<version>0.4.20</version>
-		</dependency>
-
-		<!-- Swagger / OpenAPI 3 for Spring Boot 3.x -->
+		<!-- Swagger / OpenAPI 3.0 Documentation -->
 		<dependency>
 			<groupId>org.springdoc</groupId>
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>

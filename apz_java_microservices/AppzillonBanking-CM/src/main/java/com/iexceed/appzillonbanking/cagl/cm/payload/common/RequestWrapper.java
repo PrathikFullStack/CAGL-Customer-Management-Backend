@@ -2,10 +2,12 @@ package com.iexceed.appzillonbanking.cagl.cm.payload.common;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -13,7 +15,8 @@ public class RequestWrapper<T> {
     private RequestHeader header;
     private T body;
 
-    @Data
+    @Getter
+    @Setter
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor

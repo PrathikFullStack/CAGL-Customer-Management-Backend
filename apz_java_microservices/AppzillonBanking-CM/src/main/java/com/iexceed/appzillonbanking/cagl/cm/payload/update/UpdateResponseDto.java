@@ -4,10 +4,12 @@ import java.util.List;
 import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -15,10 +17,10 @@ public class UpdateResponseDto {
     private String applicationId;
     private String customerId;
     private String section;
-    private String status; // SUCCESS, PENDING_VERIFICATION, FAILED
-    private String workflowStatus; // STP_APPROVED, PENDING_BM_APPROVAL, PENDING_RPC_CHECKER
+    private String status;
+    private String workflowStatus;
     private String nextRole;
     private String remarks;
     private List<String> validationErrors;
-    private Map<String, Object> verificationDetails; // Penny drop response, OCR response, Fuzzy match score
+    private Map<String, Object> verificationDetails;
 }

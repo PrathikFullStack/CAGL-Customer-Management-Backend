@@ -3,10 +3,12 @@ package com.iexceed.appzillonbanking.cagl.cm.payload.profile;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -14,7 +16,8 @@ public class ActiveLoansCardDto {
     private List<LoanItemDto> activeLoans;
     private List<EligibleProductDto> eligibleProducts;
 
-    @Data
+    @Getter
+    @Setter
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
@@ -28,7 +31,8 @@ public class ActiveLoansCardDto {
         private String maturityDate;
     }
 
-    @Data
+    @Getter
+    @Setter
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor

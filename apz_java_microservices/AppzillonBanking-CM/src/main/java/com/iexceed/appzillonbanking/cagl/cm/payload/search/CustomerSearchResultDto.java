@@ -2,10 +2,12 @@ package com.iexceed.appzillonbanking.cagl.cm.payload.search;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -19,7 +21,7 @@ public class CustomerSearchResultDto {
     private String kendraName;
     private String branchName;
     private String customerStatus;
-    private String sourceSystem; // LOCAL_CM or CDH_REMOTE
+    private String sourceSystem;
     private String activeLoanCount;
     private String overdueStatus;
 }

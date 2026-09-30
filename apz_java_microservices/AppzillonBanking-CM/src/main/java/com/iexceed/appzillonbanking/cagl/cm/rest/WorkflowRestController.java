@@ -20,13 +20,8 @@ import com.iexceed.appzillonbanking.cagl.cm.payload.workflow.WorkflowQueueItemDt
 import com.iexceed.appzillonbanking.cagl.cm.payload.workflow.WorkflowTransitionRequest;
 import com.iexceed.appzillonbanking.cagl.cm.service.WorkflowEngineService;
 
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.tags.Tag;
-
 @RestController
 @RequestMapping("/api/v1/cm/workflow")
-@Tag(name = "5. Workflow & Approvals", description = "Endpoints for multi-stage workflow execution, queue fetch, and audit history")
 public class WorkflowRestController {
 
     private static final Logger logger = LogManager.getLogger(WorkflowRestController.class);
@@ -41,7 +36,6 @@ public class WorkflowRestController {
      * Executes workflow transition (e.g. SUBMIT, APPROVED, PUSHBACK, REJECT, RESPOND, VERIFY, RETRIGGER)
      */
     @PostMapping("/transition")
-    @Operation(summary = "Execute Workflow Transition", description = "Executes state transition based on the 64-rule workflow matrix (e.g. SUBMIT, APPROVED, PUSHBACK, REJECT)")
     public ResponseEntity<ResponseWrapper<String>> transitionWorkflow(
             @RequestBody RequestWrapper<WorkflowTransitionRequest> request) {
         WorkflowTransitionRequest body = request.getBody();
@@ -56,13 +50,9 @@ public class WorkflowRestController {
      * Retrieves work items in a user queue (e.g., BMQUEUE, AMQUEUE, RPCMAKERQUEUE, AMLQUEUE, CRTQUEUE, etc.)
      */
     @GetMapping("/queue")
-    @Operation(summary = "Get Queue Work Items", description = "Fetches application list for a specific role queue or tile (e.g., DRAFT, BMQUEUE, RPCMAKERQUEUE)")
     public ResponseEntity<ResponseWrapper<List<WorkflowQueueItemDto>>> getQueueItems(
-            @Parameter(description = "User Role (e.g., KM, BM, AM, RPCMAKER, RPCCHECKER)")
             @RequestParam(required = false) String role,
-            @Parameter(description = "Stage Code (e.g., DRAFT, BMONHOLD, BMQUEUE)")
             @RequestParam(required = false) String stage,
-            @Parameter(description = "Branch Identifier")
             @RequestParam(required = false) String branchId) {
         logger.info("Fetching queue tasks for Role: {}, Stage: {}, Branch: {}", role, stage, branchId);
         List<WorkflowQueueItemDto> items = workflowEngine.getQueueItems(role, stage, branchId);
@@ -73,9 +63,7 @@ public class WorkflowRestController {
      * Retrieves audit trail / movement history of an application
      */
     @GetMapping("/history/{applicationId}")
-    @Operation(summary = "Get Application Workflow History", description = "Retrieves complete chronological audit trail of all actions, remarks, and stage transitions")
     public ResponseEntity<ResponseWrapper<List<WorkflowHistoryDto>>> getApplicationHistory(
-            @Parameter(description = "Application Identifier", required = true)
             @PathVariable String applicationId) {
         logger.info("Fetching workflow audit trail for App ID: {}", applicationId);
         List<WorkflowHistoryDto> history = workflowEngine.getApplicationWorkflowHistory(applicationId);

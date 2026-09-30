@@ -1,13 +1,14 @@
 package com.iexceed.appzillonbanking.cagl.cm.payload.workflow;
 
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-import java.util.Map;
-
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -22,7 +23,7 @@ public class WorkflowTransitionRequest {
     private Boolean isKycEdited;
     private Boolean isRpcEdited;
     private Boolean isAmlTriggered;
-    private String breDecision; // PASS, FAIL, TIMEOUT
+    private String breDecision;
     private Boolean isWidowedToMarried;
     private Map<String, Object> queryReasons;
 }

@@ -4,6 +4,8 @@ import com.iexceed.appzillonbanking.cagl.cm.payload.dashboard.CmDashboardSummary
 
 public interface CustomerDashboardService {
 
-
-    CmDashboardSummaryDto getDashboardSummary(String role, String branchId);
+    CmDashboardSummaryDto getDashboardSummaryAllInOne(
+            String role,
+            String branchId,
+            String search);
 }

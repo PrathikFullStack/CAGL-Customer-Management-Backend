@@ -1,4 +1,4 @@
-package com.iexceed.appzillonbanking.cagl.cm.payload.search;
+package com.iexceed.appzillonbanking.cagl.cm.payload.dashboard;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,10 +11,10 @@ import lombok.Setter;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CustomerSearchRequest {
-    private String searchType;
-    private String searchValue;
-    private String branchId;
+public class DashboardSummaryRequest {
+    private String tab;
+    private String subTab;
+    private String search;
     private Integer pageNo;
     private Integer pageSize;
 }

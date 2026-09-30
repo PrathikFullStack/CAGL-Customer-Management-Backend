@@ -1,10 +1,7 @@
 package com.iexceed.appzillonbanking.cagl.cm.service.impl;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,8 +13,6 @@ import com.iexceed.appzillonbanking.cagl.cm.service.CustomerDashboardService;
 @Service
 public class CustomerDashboardServiceImpl implements CustomerDashboardService {
 
-    private static final Logger logger = LogManager.getLogger(CustomerDashboardServiceImpl.class);
-
     private final CmApplicationMasterRepository appRepo;
 
     public CustomerDashboardServiceImpl(CmApplicationMasterRepository appRepo) {
@@ -26,108 +21,206 @@ public class CustomerDashboardServiceImpl implements CustomerDashboardService {
 
     @Override
     @Transactional(readOnly = true)
-    public CmDashboardSummaryDto getDashboardSummary(String role, String branchId) {
-        logger.info("Generating Dashboard Summary for Role: {}, Branch: {}", role, branchId);
+    public CmDashboardSummaryDto getDashboardSummaryAllInOne(
+            String role,
+            String branchId,
+            String search) {
 
-        List<CmApplicationMasterEntity> allApps = appRepo.findAll();
+        List<CmApplicationMasterEntity> apps = appRepo.findAll();
 
-        if (branchId != null && !branchId.isBlank() && !branchId.equalsIgnoreCase("ALL") && !branchId.equalsIgnoreCase("null") && !branchId.equalsIgnoreCase("branchId")) {
-            allApps = allApps.stream()
+        if (branchId != null && !branchId.isBlank()) {
+            apps = apps.stream()
                     .filter(a -> branchId.equalsIgnoreCase(a.getBranchId()) || branchId.equalsIgnoreCase(a.getBranchName()))
-                    .collect(Collectors.toList());
+                    .toList();
         }
 
-        // Action Required Counts
-        long drafts = allApps.stream()
-                .filter(a -> a.getStage() != null && (
-                        a.getStage().equalsIgnoreCase("DRAFT") ||
-                        a.getStage().equalsIgnoreCase("KYC") ||
-                        a.getStage().equalsIgnoreCase("INITIATE") ||
-                        a.getStage().equalsIgnoreCase("INITIATED")))
-                .count();
+        if (search != null && !search.isBlank()) {
+            String query = search.trim().toLowerCase();
+            apps = apps.stream().filter(a ->
+                    (a.getCustomerName() != null && a.getCustomerName().toLowerCase().contains(query)) ||
+                    (a.getCustomerId() != null && a.getCustomerId().toLowerCase().contains(query)) ||
+                    (a.getApplicationId() != null && a.getApplicationId().toLowerCase().contains(query)) ||
+                    (a.getMobileNumber() != null && a.getMobileNumber().contains(query)) ||
+                    (a.getKendraName() != null && a.getKendraName().toLowerCase().contains(query)) ||
+                    (a.getKmName() != null && a.getKmName().toLowerCase().contains(query))
+            ).toList();
+        }
 
-        long draftsOffline = allApps.stream()
-                .filter(a -> ("DRAFT".equalsIgnoreCase(a.getStage()) || "KYC".equalsIgnoreCase(a.getStage())) 
-                        && "OFFLINE".equalsIgnoreCase(a.getChannelType()))
-                .count();
-        long draftsOnline = Math.max(0, drafts - draftsOffline);
+        // 1. DRAFTS DATA
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> draftsAll = apps.stream()
+                .filter(a -> "DRAFT".equalsIgnoreCase(a.getStage()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
-        long onhold = allApps.stream()
-                .filter(a -> a.getStage() != null && (
-                        a.getStage().equalsIgnoreCase("BMONHOLD") ||
-                        a.getStage().equalsIgnoreCase("AMONHOLD") ||
-                        a.getStage().equalsIgnoreCase("RPCONHOLD") ||
-                        a.getStage().equalsIgnoreCase("ONHOLD")))
-                .count();
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> draftsOnline = apps.stream()
+                .filter(a -> "DRAFT".equalsIgnoreCase(a.getStage()) && !"OFFLINE".equalsIgnoreCase(a.getChannelType()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
-        long campaignDrive = allApps.stream()
-                .filter(a -> a.getStage() != null && (
-                        a.getStage().equalsIgnoreCase("CAMPAIGN") || 
-                        "CAMPAIGN".equalsIgnoreCase(a.getRecordType())))
-                .count();
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> draftsOffline = apps.stream()
+                .filter(a -> "DRAFT".equalsIgnoreCase(a.getStage()) && "OFFLINE".equalsIgnoreCase(a.getChannelType()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
-        // Overview Counts
-        long pendingBmReview = allApps.stream()
-                .filter(a -> a.getStage() != null && (
-                        a.getStage().equalsIgnoreCase("BMQUEUE") || 
-                        a.getStage().equalsIgnoreCase("BM_REVIEW")))
-                .count();
+        // 2. ONHOLD DATA
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> onholdAll = apps.stream()
+                .filter(a -> a.getStage() != null && a.getStage().toUpperCase().contains("ONHOLD"))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
-        long pendingAmReview = allApps.stream()
-                .filter(a -> a.getStage() != null && (
-                        a.getStage().equalsIgnoreCase("AMQUEUE") || 
-                        a.getStage().equalsIgnoreCase("AM_REVIEW")))
-                .count();
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> onholdFromBm = apps.stream()
+                .filter(a -> a.getStage() != null && a.getStage().equalsIgnoreCase("BMONHOLD"))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
-        long pendingRpcReview = allApps.stream()
-                .filter(a -> a.getStage() != null && (
-                        a.getStage().equalsIgnoreCase("RPCMAKERQUEUE") ||
-                        a.getStage().equalsIgnoreCase("RPCCHECKERQUEUE") ||
-                        a.getStage().equalsIgnoreCase("CPU_REVIEW") ||
-                        a.getStage().equalsIgnoreCase("RPC_REVIEW")))
-                .count();
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> onholdFromAm = apps.stream()
+                .filter(a -> a.getStage() != null && a.getStage().equalsIgnoreCase("AMONHOLD"))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
-        long completed = allApps.stream()
-                .filter(a -> a.getStage() != null && (
-                        a.getStage().equalsIgnoreCase("COMPLETED") ||
-                        a.getStage().equalsIgnoreCase("APPROVED")))
-                .count();
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> onholdFromRpc = apps.stream()
+                .filter(a -> a.getStage() != null && a.getStage().equalsIgnoreCase("RPCONHOLD"))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
-        long rejected = allApps.stream()
-                .filter(a -> (a.getStage() != null && a.getStage().equalsIgnoreCase("REJECTED")) ||
-                             (a.getStatus() != null && a.getStatus().equalsIgnoreCase("REJECTED")))
-                .count();
+        // 3. CAMPAIGN DRIVE DATA
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> campaignDrive = apps.stream()
+                .filter(a -> "CAMPAIGN".equalsIgnoreCase(a.getRecordType()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
-        long photoDedupePending = allApps.stream()
-                .filter(a -> a.getStage() != null && a.getStage().equalsIgnoreCase("PHOTODEDUPE"))
-                .count();
+        // 4. OVERVIEW DATA
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> pendingBmReview = apps.stream()
+                .filter(a -> "BMQUEUE".equalsIgnoreCase(a.getStage()) || "BM_REVIEW".equalsIgnoreCase(a.getStage()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
-        long t24UpdationPending = allApps.stream()
-                .filter(a -> a.getStage() != null && a.getStage().equalsIgnoreCase("T24PENDING"))
-                .count();
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> pendingAmReview = apps.stream()
+                .filter(a -> "AMQUEUE".equalsIgnoreCase(a.getStage()) || "AM_REVIEW".equalsIgnoreCase(a.getStage()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
-        long t24UpdationFailed = allApps.stream()
-                .filter(a -> a.getStage() != null && a.getStage().equalsIgnoreCase("T24FAILED"))
-                .count();
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> pendingRpcReview = apps.stream()
+                .filter(a -> "RPCMAKERQUEUE".equalsIgnoreCase(a.getStage()) || "RPCCHECKERQUEUE".equalsIgnoreCase(a.getStage()) || "CPU_REVIEW".equalsIgnoreCase(a.getStage()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
 
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> completed = apps.stream()
+                .filter(a -> "COMPLETED".equalsIgnoreCase(a.getStage()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
+
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> rejected = apps.stream()
+                .filter(a -> "REJECTED".equalsIgnoreCase(a.getStatus()) || "REJECTED".equalsIgnoreCase(a.getStage()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
+
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> photoDedupePending = apps.stream()
+                .filter(a -> "DEDUPEQUEUE".equalsIgnoreCase(a.getStage()) || "DEDUPE_PENDING".equalsIgnoreCase(a.getStage()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
+
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> t24UpdationPending = apps.stream()
+                .filter(a -> "T24PENDING".equalsIgnoreCase(a.getStage()) || "T24_PENDING".equalsIgnoreCase(a.getStage()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
+
+        List<CmDashboardSummaryDto.DashboardMemberItemDto> t24UpdationFailed = apps.stream()
+                .filter(a -> "T24FAILED".equalsIgnoreCase(a.getStatus()) || "T24_FAILED".equalsIgnoreCase(a.getStatus()))
+                .map(this::mapToDashboardMemberDto)
+                .toList();
+
+        // 5. ASSEMBLE ALL-IN-ONE RESPONSE
         return CmDashboardSummaryDto.builder()
-                .actionRequired(CmDashboardSummaryDto.ActionRequiredCounts.builder()
-                        .drafts(drafts)
-                        .draftsOnline(draftsOnline)
-                        .draftsOffline(draftsOffline)
-                        .onhold(onhold)
+                .actionRequired(CmDashboardSummaryDto.ActionRequiredDto.builder()
+                        .drafts(CmDashboardSummaryDto.DraftsMetricsDto.builder()
+                                .total(draftsAll.size())
+                                .online(draftsOnline.size())
+                                .offline(draftsOffline.size())
+                                .build())
+                        .onhold(CmDashboardSummaryDto.OnholdMetricsDto.builder()
+                                .total(onholdAll.size())
+                                .fromBm(onholdFromBm.size())
+                                .fromAm(onholdFromAm.size())
+                                .fromRpc(onholdFromRpc.size())
+                                .build())
+                        .campaignDrive(CmDashboardSummaryDto.CampaignMetricsDto.builder()
+                                .total(campaignDrive.size())
+                                .build())
+                        .build())
+                .overview(CmDashboardSummaryDto.OverviewDto.builder()
+                        .pendingBmReview(pendingBmReview.size())
+                        .pendingAmReview(pendingAmReview.size())
+                        .pendingRpcReview(pendingRpcReview.size())
+                        .completed(completed.size())
+                        .rejected(rejected.size())
+                        .photoDedupePending(photoDedupePending.size())
+                        .t24UpdationPending(t24UpdationPending.size())
+                        .t24UpdationFailed(t24UpdationFailed.size())
+                        .build())
+                .data(CmDashboardSummaryDto.DashboardDataDto.builder()
+                        .drafts(CmDashboardSummaryDto.DraftsDataDto.builder()
+                                .all(draftsAll)
+                                .online(draftsOnline)
+                                .offline(draftsOffline)
+                                .build())
+                        .onhold(CmDashboardSummaryDto.OnholdDataDto.builder()
+                                .all(onholdAll)
+                                .fromBm(onholdFromBm)
+                                .fromAm(onholdFromAm)
+                                .fromRpc(onholdFromRpc)
+                                .build())
                         .campaignDrive(campaignDrive)
+                        .overview(CmDashboardSummaryDto.OverviewDataDto.builder()
+                                .pendingBmReview(pendingBmReview)
+                                .pendingAmReview(pendingAmReview)
+                                .pendingRpcReview(pendingRpcReview)
+                                .completed(completed)
+                                .rejected(rejected)
+                                .photoDedupePending(photoDedupePending)
+                                .t24UpdationPending(t24UpdationPending)
+                                .t24UpdationFailed(t24UpdationFailed)
+                                .build())
                         .build())
-                .overview(CmDashboardSummaryDto.OverviewCounts.builder()
-                        .pendingBmReview(pendingBmReview)
-                        .pendingAmReview(pendingAmReview)
-                        .pendingRpcReview(pendingRpcReview)
-                        .completed(completed)
-                        .rejected(rejected)
-                        .photoDedupePending(photoDedupePending)
-                        .t24UpdationPending(t24UpdationPending)
-                        .t24UpdationFailed(t24UpdationFailed)
-                        .build())
+                .build();
+    }
+
+    private CmDashboardSummaryDto.DashboardMemberItemDto mapToDashboardMemberDto(CmApplicationMasterEntity a) {
+        String onholdSource = null;
+        if (a.getStage() != null) {
+            if (a.getStage().toUpperCase().contains("BM")) onholdSource = "BM";
+            else if (a.getStage().toUpperCase().contains("AM")) onholdSource = "AM";
+            else if (a.getStage().toUpperCase().contains("RPC")) onholdSource = "RPC";
+        }
+
+        String requestType = (a.getSubStage() != null && !a.getSubStage().isBlank())
+                ? a.getSubStage()
+                : "KYC Details update";
+
+        String channel = ("OFFLINE".equalsIgnoreCase(a.getChannelType())) ? "Offline" : "Online";
+
+        return CmDashboardSummaryDto.DashboardMemberItemDto.builder()
+                .applicationId(a.getApplicationId())
+                .memberId(a.getCustomerId())
+                .memberName(a.getCustomerName())
+                .mobileNumber(a.getMobileNumber())
+                .kmId(a.getCreatedBy() != null ? a.getCreatedBy() : "GK123456")
+                .kmName(a.getKmName() != null ? a.getKmName() : "Ramesh Kumar")
+                .kendraId(a.getKendraId() != null ? a.getKendraId() : "8282828229")
+                .kendraName(a.getKendraName() != null ? a.getKendraName() : "Kolar")
+                .groupId(a.getGroupId() != null ? a.getGroupId() : "7828929201")
+                .groupName(a.getGroupId() != null ? "Group " + a.getGroupId() : "Group 1")
+                .branchId(a.getBranchId())
+                .branchName(a.getBranchName())
+                .requestType(requestType)
+                .campaignStart("23/08/2026")
+                .stage(a.getStage())
+                .subStage(a.getSubStage())
+                .status(a.getStatus())
+                .onholdSource(onholdSource)
+                .channel(channel)
+                .createdDate(a.getCreatedTs())
+                .updatedDate(a.getUpdatedTs())
                 .build();
     }
 }

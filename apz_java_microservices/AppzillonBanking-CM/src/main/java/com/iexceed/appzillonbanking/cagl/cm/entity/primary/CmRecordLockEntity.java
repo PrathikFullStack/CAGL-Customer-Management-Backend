@@ -8,12 +8,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "tb_cm_record_lock")
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -42,7 +44,7 @@ public class CmRecordLockEntity {
     private LocalDateTime lockExpiryTs;
 
     @Column(name = "status", length = 10, nullable = false)
-    private String status; // ACTIVE, RELEASED, EXPIRED
+    private String status;
 
     @Column(name = "released_at")
     private LocalDateTime releasedAt;

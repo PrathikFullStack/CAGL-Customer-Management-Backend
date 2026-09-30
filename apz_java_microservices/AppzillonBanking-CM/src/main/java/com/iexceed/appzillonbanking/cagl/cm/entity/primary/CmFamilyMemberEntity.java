@@ -9,12 +9,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "tb_cm_family_member")
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -31,7 +33,7 @@ public class CmFamilyMemberEntity {
     private String applicationId;
 
     @Column(name = "member_type", length = 3, nullable = false)
-    private String memberType; // SP=Spouse, CO=Co-applicant, EM=Earning Member
+    private String memberType;
 
     @Column(name = "relation", length = 30, nullable = false)
     private String relation;
