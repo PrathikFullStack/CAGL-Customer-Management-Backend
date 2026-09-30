@@ -37,7 +37,11 @@ public class CdhDatabaseConfig {
     @Bean(name = "cdhDataSource")
     @ConfigurationProperties(prefix = "cdh.datasource.hikari")
     public DataSource cdhDataSource(
-            @Qualifier("cdhDataSourceProperties") DataSourceProperties properties) {
+            @Qualifier("cdhDataSourceProperties") DataSourceProperties properties,
+            @Qualifier("primaryDataSource") DataSource primaryDataSource) {
+        if (properties.getUrl() == null || properties.getUrl().contains("localhost")) {
+            return primaryDataSource;
+        }
         return properties.initializeDataSourceBuilder().type(HikariDataSource.class).build();
     }
 
