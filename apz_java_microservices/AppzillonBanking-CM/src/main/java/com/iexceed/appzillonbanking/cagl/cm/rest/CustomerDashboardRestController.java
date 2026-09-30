@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.iexceed.appzillonbanking.cagl.cm.constants.CmConstants;
+import com.iexceed.appzillonbanking.cagl.cm.constants.ResponseMessageConstants;
 import com.iexceed.appzillonbanking.cagl.cm.payload.common.ResponseWrapper;
 import com.iexceed.appzillonbanking.cagl.cm.payload.dashboard.CmDashboardSummaryDto;
 import com.iexceed.appzillonbanking.cagl.cm.service.CustomerDashboardService;
@@ -17,7 +19,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
-@RequestMapping("/api/v1/cm/dashboard")
+@RequestMapping(CmConstants.API_DASHBOARD)
 @Tag(name = "Customer Management Dashboard", description = "Endpoints for fetching complete dashboard summary counts and customer data in one shot")
 public class CustomerDashboardRestController {
 
@@ -35,7 +37,7 @@ public class CustomerDashboardRestController {
         description = "Returns complete summary tile counts (Action Required & Overview) AND all table lists for Drafts (all/online/offline), Onhold (all/fromBm/fromAm/fromRpc), Campaign drive, and Overview categories in a single call."
     )
     public ResponseEntity<ResponseWrapper<CmDashboardSummaryDto>> getDashboardSummary(
-            @Parameter(description = "User Role (e.g. KM, BM, AM, RPCMAKER)") @RequestParam(required = false, defaultValue = "KM") String role,
+            @Parameter(description = "User Role (e.g. KM, BM, AM, RPCMAKER)") @RequestParam(required = false, defaultValue = CmConstants.ROLE_KM) String role,
             @Parameter(description = "Branch ID or Branch Name filter") @RequestParam(required = false) String branchId,
             @Parameter(description = "Optional Search query by member name, member ID, kendra, or KM") @RequestParam(required = false) String search) {
 
@@ -44,6 +46,6 @@ public class CustomerDashboardRestController {
 
         CmDashboardSummaryDto response = dashboardService.getDashboardSummaryAllInOne(role, branchId, search);
 
-        return ResponseEntity.ok(ResponseWrapper.success(response, "Dashboard summary and all records fetched successfully"));
+        return ResponseEntity.ok(ResponseWrapper.success(response, ResponseMessageConstants.MSG_DASHBOARD_FETCHED));
     }
 }

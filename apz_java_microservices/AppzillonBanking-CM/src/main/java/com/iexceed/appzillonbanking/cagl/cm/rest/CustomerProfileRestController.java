@@ -11,12 +11,15 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.iexceed.appzillonbanking.cagl.cm.constants.CmConstants;
+import com.iexceed.appzillonbanking.cagl.cm.constants.ResponseCodeConstants;
+import com.iexceed.appzillonbanking.cagl.cm.constants.ResponseMessageConstants;
 import com.iexceed.appzillonbanking.cagl.cm.payload.common.ResponseWrapper;
 import com.iexceed.appzillonbanking.cagl.cm.payload.profile.CustomerProfileResponseDto;
 import com.iexceed.appzillonbanking.cagl.cm.service.CustomerProfileService;
 
 @RestController
-@RequestMapping("/api/v1/cm/profile")
+@RequestMapping(CmConstants.API_PROFILE)
 public class CustomerProfileRestController {
 
     private static final Logger logger = LogManager.getLogger(CustomerProfileRestController.class);
@@ -30,14 +33,14 @@ public class CustomerProfileRestController {
     @GetMapping("/{customerId}")
     public ResponseEntity<ResponseWrapper<CustomerProfileResponseDto>> getProfile(
             @PathVariable("customerId") String customerId,
-            @RequestHeader(value = "userId", required = false, defaultValue = "SYSTEM") String userId) {
+            @RequestHeader(value = CmConstants.HEADER_USER_ID, required = false, defaultValue = CmConstants.DEFAULT_USER_ID) String userId) {
         logger.info("Fetching Profile for Customer ID: {} by User: {}", customerId, userId);
 
         Optional<CustomerProfileResponseDto> profileOpt = profileService.getCustomerProfile(customerId, userId);
         if (profileOpt.isEmpty()) {
-            return ResponseEntity.status(404).body(ResponseWrapper.error("404", "Customer not found"));
+            return ResponseEntity.status(404).body(ResponseWrapper.error(ResponseCodeConstants.CODE_NOT_FOUND, ResponseMessageConstants.MSG_CUSTOMER_NOT_FOUND));
         }
 
-        return ResponseEntity.ok(ResponseWrapper.success(profileOpt.get(), "Profile fetched successfully"));
+        return ResponseEntity.ok(ResponseWrapper.success(profileOpt.get(), ResponseMessageConstants.MSG_PROFILE_FETCHED));
     }
 }

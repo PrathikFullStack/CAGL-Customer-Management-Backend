@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.iexceed.appzillonbanking.cagl.cm.constants.CmConstants;
+import com.iexceed.appzillonbanking.cagl.cm.constants.ResponseMessageConstants;
 import com.iexceed.appzillonbanking.cagl.cm.payload.common.RequestWrapper;
 import com.iexceed.appzillonbanking.cagl.cm.payload.common.ResponseWrapper;
 import com.iexceed.appzillonbanking.cagl.cm.payload.workflow.WorkflowHistoryDto;
@@ -21,7 +23,7 @@ import com.iexceed.appzillonbanking.cagl.cm.payload.workflow.WorkflowTransitionR
 import com.iexceed.appzillonbanking.cagl.cm.service.WorkflowEngineService;
 
 @RestController
-@RequestMapping("/api/v1/cm/workflow")
+@RequestMapping(CmConstants.API_WORKFLOW)
 public class WorkflowRestController {
 
     private static final Logger logger = LogManager.getLogger(WorkflowRestController.class);
@@ -56,7 +58,7 @@ public class WorkflowRestController {
             @RequestParam(required = false) String branchId) {
         logger.info("Fetching queue tasks for Role: {}, Stage: {}, Branch: {}", role, stage, branchId);
         List<WorkflowQueueItemDto> items = workflowEngine.getQueueItems(role, stage, branchId);
-        return ResponseEntity.ok(ResponseWrapper.success(items, "Queue items fetched successfully"));
+        return ResponseEntity.ok(ResponseWrapper.success(items, ResponseMessageConstants.MSG_QUEUE_ITEMS_FETCHED));
     }
 
     /**
@@ -67,6 +69,6 @@ public class WorkflowRestController {
             @PathVariable String applicationId) {
         logger.info("Fetching workflow audit trail for App ID: {}", applicationId);
         List<WorkflowHistoryDto> history = workflowEngine.getApplicationWorkflowHistory(applicationId);
-        return ResponseEntity.ok(ResponseWrapper.success(history, "Workflow history fetched successfully"));
+        return ResponseEntity.ok(ResponseWrapper.success(history, ResponseMessageConstants.MSG_WORKFLOW_HISTORY_FETCHED));
     }
 }

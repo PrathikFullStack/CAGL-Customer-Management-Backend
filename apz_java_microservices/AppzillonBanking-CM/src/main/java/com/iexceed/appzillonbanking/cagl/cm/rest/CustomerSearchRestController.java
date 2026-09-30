@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.iexceed.appzillonbanking.cagl.cm.constants.CmConstants;
+import com.iexceed.appzillonbanking.cagl.cm.constants.ResponseMessageConstants;
 import com.iexceed.appzillonbanking.cagl.cm.entity.cdh.GkUnifiedDataEntity;
 import com.iexceed.appzillonbanking.cagl.cm.payload.common.RequestWrapper;
 import com.iexceed.appzillonbanking.cagl.cm.payload.common.ResponseWrapper;
@@ -20,7 +22,7 @@ import com.iexceed.appzillonbanking.cagl.cm.repository.cdh.GkUnifiedDataReposito
 import com.iexceed.appzillonbanking.cagl.cm.repository.primary.CmApplicationMasterRepository;
 
 @RestController
-@RequestMapping("/api/v1/cm/search")
+@RequestMapping(CmConstants.API_SEARCH)
 public class CustomerSearchRestController {
 
     private static final Logger logger = LogManager.getLogger(CustomerSearchRestController.class);
@@ -55,12 +57,12 @@ public class CustomerSearchRestController {
                     .kendraName(cdh.getKendraName())
                     .branchName(cdh.getBranchName())
                     .customerStatus(cdh.getCustomerStatus())
-                    .sourceSystem("CDH")
-                    .activeLoanCount(cdh.getLoanId() != null ? "1" : "0")
+                    .sourceSystem(CmConstants.SOURCE_CDH)
+                    .activeLoanCount(cdh.getLoanId() != null ? CmConstants.FLAG_TRUE : CmConstants.FLAG_FALSE)
                     .overdueStatus(cdh.getOverdueStatus())
                     .build());
         }
 
-        return ResponseEntity.ok(ResponseWrapper.success(results, "Search completed successfully"));
+        return ResponseEntity.ok(ResponseWrapper.success(results, ResponseMessageConstants.MSG_SEARCH_COMPLETED));
     }
 }
