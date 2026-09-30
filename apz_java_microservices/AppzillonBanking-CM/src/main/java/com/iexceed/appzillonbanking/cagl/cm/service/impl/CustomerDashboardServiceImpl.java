@@ -26,7 +26,12 @@ public class CustomerDashboardServiceImpl implements CustomerDashboardService {
             String branchId,
             String search) {
 
-        List<CmApplicationMasterEntity> apps = appRepo.findAll();
+        List<CmApplicationMasterEntity> apps;
+        try {
+            apps = appRepo.findAll();
+        } catch (Exception e) {
+            apps = List.of();
+        }
 
         if (branchId != null && !branchId.isBlank()) {
             apps = apps.stream()
