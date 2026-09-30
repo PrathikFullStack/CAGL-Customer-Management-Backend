@@ -20,7 +20,6 @@ public class CustomerDashboardServiceImpl implements CustomerDashboardService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public CmDashboardSummaryDto getDashboardSummaryAllInOne(
             String role,
             String branchId,
