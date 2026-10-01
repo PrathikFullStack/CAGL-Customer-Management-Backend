@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "apz-ms-appzillonbanking-kyc.fullname" . }}
+  labels:
+    {{- include "apz-ms-appzillonbanking-kyc.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "apz-ms-appzillonbanking-kyc.selectorLabels" . | nindent 6 }}
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "apz-ms-appzillonbanking-kyc.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 10 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ports.containerPort }}
+              protocol: {{ .Values.ports.protocol }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "30"]            
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.contextPath }}/actuator/health/liveness
+              port: {{ .Values.liveness.port }}
+            periodSeconds: {{ .Values.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.contextPath }}/actuator/health/readiness
+              port: {{ .Values.readiness.port }}
+            periodSeconds: {{ .Values.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.readiness.timeoutSeconds }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.contextPath }}/actuator/health
+              port: {{ .Values.startup.port }}
+            failureThreshold: {{ .Values.startup.failureThreshold }}
+            periodSeconds: {{ .Values.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.startup.timeoutSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+          - name: apz-ms-appzillonbanking-kyc-application-configmap
+            mountPath: {{ .Values.volumeMounts.configPath }}/properties
+            readOnly: true
+          - name: apz-ms-appzillonbanking-kyc-resource-dynamic
+            mountPath: {{ .Values.volumeMounts.configPath }}/resources/dynamic
+            readOnly: true
+          - name: apz-ms-appzillonbanking-kyc-resource-intfjson
+            mountPath: {{ .Values.volumeMounts.configPath }}/resources/intfJSON
+            readOnly: true
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      volumes:
+        - name: apz-ms-appzillonbanking-kyc-application-configmap
+          configMap:
+            name: apz-ms-appzillonbanking-kyc-application-configmap
+        - name: apz-ms-appzillonbanking-kyc-resource-dynamic
+          configMap:
+            name: apz-ms-appzillonbanking-kyc-resource-dynamic
+        - name: apz-ms-appzillonbanking-kyc-resource-intfjson
+          configMap:
+            name: apz-ms-appzillonbanking-kyc-resource-intfjson

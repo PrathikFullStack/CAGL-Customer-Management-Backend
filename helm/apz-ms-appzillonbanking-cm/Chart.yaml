@@ -1,0 +1,6 @@
+apiVersion: v2
+name: apz-ms-appzillonbanking-cm
+description: A Helm chart for Customer Management Microservice (OpenShift / Kubernetes)
+type: application
+version: 0.2.0
+appVersion: 1.0.0

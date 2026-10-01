@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apz-ms-appzillonbanking-kyc-resource-dynamic
+binaryData:
+{{ range $path, $bytes := .Files.Glob (printf "resources/dynamic/*")}}
+{{- base $path | indent 2}}{{ print ": "}}{{ $.Files.Get $path | b64enc }}
+{{ end }}

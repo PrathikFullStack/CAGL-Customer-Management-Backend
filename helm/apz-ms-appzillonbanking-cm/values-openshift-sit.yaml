@@ -1,0 +1,55 @@
+# Default values for apz-ms-appzillonbanking-cm (SIT).
+
+replicaCount: 1
+
+image:
+  repository: image-registry.openshift-image-registry.svc:5000/maitri-unnathi-sit/apz-ms-appzillonbanking-cm
+  pullPolicy: Always
+  tag: "v1"
+
+imagePullSecrets:
+ - name: default-dockercfg-njfqp
+
+nameOverride: ""
+fullnameOverride: "apz-ms-appzillonbanking-cm"
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: "default"
+
+podAnnotations:
+  prometheus.io/port: "8871"
+  prometheus.io/scrape: "true"
+
+service:
+  type: ClusterIP
+  port: 9297
+
+ingress:
+  enabled: false
+  hosts:
+    - host: apz-ms-appzillonbanking-cm-maitri-unnathi-sit.apps.ocpdr.corp.grameenkoota.org
+      paths:
+        - /appzillonbankingcm
+
+resources: 
+   limits:
+     cpu: 2000m
+     memory: 4000Mi
+   requests:
+     cpu: 300m
+     memory: 1000Mi
+
+enviroment: sit
+
+ports:
+  containerPort: 9297
+  protocol: TCP
+
+nameSpace: maitri-unnathi-sit
+contextPath: /appzillonbankingcm
+secretAppTag: common
+
+openshift:
+  cluster: true

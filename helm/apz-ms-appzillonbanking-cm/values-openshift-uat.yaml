@@ -1,0 +1,103 @@
+# Default values for apz-ms-appzillonbanking-cm (UAT).
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: image-registry.openshift-image-registry.svc:5000/maitri-unnathi/apz-ms-appzillonbanking-cm
+  pullPolicy: Always
+  tag: "v1"
+
+imagePullSecrets:
+ - name: default-dockercfg-njfqp
+
+nameOverride: ""
+fullnameOverride: "apz-ms-appzillonbanking-cm"
+
+serviceAccount:
+  create: false
+  annotations: {}
+  name: "default"
+
+podAnnotations:
+  prometheus.io/port: "8871"
+  prometheus.io/scrape: "true"
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 9297
+
+ingress:
+  enabled: false
+  annotations:
+    haproxy.router.openshift.io/balance: roundrobin
+    haproxy.router.openshift.io/disable_cookies: 'true'
+    haproxy.router.openshift.io/timeout: 300s
+  hosts:
+    - host: apz-ms-appzillonbanking-cm-maitri-unnathi.apps.ocpdr.corp.grameenkoota.org
+      paths:
+        - /appzillonbankingcm
+  tls:
+    - secretName: common-tls-secret-server
+      hosts:
+        - apz-ms-appzillonbanking-cm-maitri-unnathi.apps.ocpdr.corp.grameenkoota.org
+
+resources: 
+   limits:
+     cpu: 2000m
+     memory: 4000Mi
+   requests:
+     cpu: 300m
+     memory: 1000Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 20
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+volumeMounts:
+  configPath: /app
+
+enviroment: uat
+
+ports:
+  containerPort: 9297
+  protocol: TCP
+
+liveness:
+  port: http
+  periodSeconds: 300
+  timeoutSeconds: 10
+  failureThreshold: 5
+
+readiness:
+  port: http
+  periodSeconds: 300
+  timeoutSeconds: 10
+  failureThreshold: 5
+
+startup:
+  port: http
+  failureThreshold: 30
+  periodSeconds: 10
+  timeoutSeconds: 2
+
+terminationGracePeriodSeconds: 60
+
+nameSpace: maitri-unnathi
+contextPath: /appzillonbankingcm
+secretAppTag: common
+
+openshift:
+  cluster: true
