@@ -1,0 +1,97 @@
+# Default values for appzillon-cm.
+# This is a YAML-formatted file containing default configuration parameters.
+
+replicaCount: 2
+
+image:
+  repository: your-registry.domain.com/cagl/appzillon-cm
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
+  hosts:
+    - host: cm.cagl.domain.com
+      paths:
+        - path: /appzillonbankingcm
+          pathType: Prefix
+  tls:
+    - secretName: appzillon-cm-tls
+      hosts:
+        - cm.cagl.domain.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# Application Environment Variables
+env:
+  SPRING_PROFILES_ACTIVE: "prod"
+  SERVER_PORT: "8080"
+  SERVER_SERVLET_CONTEXT_PATH: "/appzillonbankingcm"
+  JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+# Primary PostgreSQL Database configuration
+database:
+  host: "cagl-postgres-db.internal"
+  port: "5432"
+  name: "cagl_db"
+  username: "cagl_user"
+  # Set secretKeyRef or raw password
+  password: "ChangeMeInProduction123!"
+
+# CDH Database configuration
+cdhDatabase:
+  host: "cagl-cdh-db.internal"
+  port: "5432"
+  name: "cdh_db"
+  username: "cdh_user"
+  password: "ChangeMeInProduction123!"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

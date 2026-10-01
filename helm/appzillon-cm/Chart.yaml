@@ -1,0 +1,13 @@
+apiVersion: v2
+name: appzillon-cm
+description: A Helm chart for Spring Boot Appzillon Customer Management Microservice
+type: application
+version: 0.1.0
+appVersion: "0.0.1-SNAPSHOT"
+keywords:
+  - spring-boot
+  - java17
+  - customer-management
+  - microservice
+maintainers:
+  - name: CAGL Development Team
